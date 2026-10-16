@@ -115,7 +115,7 @@ clustermind/
 | Node.js | 18+ | https://nodejs.org |
 | kubectl | 최신 | https://kubernetes.io/docs/tasks/tools |
 | kind | 최신 (로컬 데모용) | https://kind.sigs.k8s.io |
-| OpenAI API Key | — | https://platform.openai.com |
+| Gemini API Key | — | https://aistudio.google.com/apikey |
 
 ---
 
@@ -139,7 +139,7 @@ cd web && npm install && cd ..
 ### 2. 환경 변수 설정
 
 ```bash
-export OPENAI_API_KEY=sk-...                        # LLM API 키 (AI 기능 필수)
+export GEMINI_API_KEY=AIza...                       # LLM API 키 (AI 기능 필수)
 export KUBECONFIG=~/.kube/config                    # kubeconfig 경로 (기본값)
 export CLUSTERMIND_NAMESPACE=demo                   # 수집 네임스페이스 (빈값=전체)
 export CLUSTERMIND_PORT=8080                        # API 서버 포트

@@ -54,7 +54,7 @@ cd web && npm install && cd ..
 ### 3. Set Environment Variables
 
 ```bash
-export OPENAI_API_KEY=sk-...          # Required for AI features
+export GEMINI_API_KEY=AIza...          # Required for AI features (https://aistudio.google.com/apikey)
 export KUBECONFIG=~/.kube/config      # kubeconfig path (default)
 export CLUSTERMIND_NAMESPACE=demo     # Namespace to collect (empty = all)
 export CLUSTERMIND_PORT=8080          # API server port

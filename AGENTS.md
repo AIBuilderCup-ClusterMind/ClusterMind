@@ -372,7 +372,7 @@ go build -o bin/clustermind ./cmd/clustermind
 cd web && npm install && cd ..
 
 # 환경 변수 설정
-export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=AIza...
 export KUBECONFIG=~/.kube/config   # 또는 demo mock 사용
 ```
 
@@ -536,7 +536,7 @@ require (
     k8s.io/client-go                  v0.29.0
     k8s.io/api                        v0.29.0
     github.com/gin-gonic/gin          v1.10.0
-    github.com/sashabaranov/go-openai v1.24.0
+    google.golang.org/genai              v1.75.0
     gonum.org/v1/gonum                v0.15.0
     golang.org/x/sync                 v0.7.0   // errgroup
 )
@@ -568,7 +568,7 @@ require (
 ```bash
 # 공통
 KUBECONFIG=~/.kube/config        # kubeconfig 경로 (기본값)
-OPENAI_API_KEY=sk-...            # LLM API 키
+GEMINI_API_KEY=AIza...           # LLM API 키 (https://aistudio.google.com/apikey)
 
 # 백엔드 (Go)
 CLUSTERMIND_PORT=8080            # API 서버 포트
