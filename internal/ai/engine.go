@@ -5,41 +5,56 @@ import (
 	"context"
 	"fmt"
 
-	openai "github.com/sashabaranov/go-openai"
+	genai "google.golang.org/genai"
 )
 
-// Engine wraps an OpenAI-compatible LLM client.
+// Engine wraps a Gemini generative AI client.
 type Engine struct {
-	client *openai.Client
+	client *genai.Client
 	model  string
 }
 
-// NewEngine creates an Engine with the given API key and model name.
-// model defaults to gpt-4o-mini if empty.
+// NewEngine creates an Engine with the given Gemini API key and model name.
+// model defaults to gemini-2.0-flash if empty.
 func NewEngine(apiKey, model string) *Engine {
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = "gemini-2.0-flash"
 	}
-	return &Engine{
-		client: openai.NewClient(apiKey),
-		model:  model,
-	}
-}
-
-// ChatComplete sends a system + user message and returns the assistant response.
-func (e *Engine) ChatComplete(ctx context.Context, system, user string) (string, error) {
-	resp, err := e.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: e.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: system},
-			{Role: openai.ChatMessageRoleUser, Content: user},
-		},
+	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
 	})
 	if err != nil {
-		return "", fmt.Errorf("llm chat: %w", err)
+		// Return engine with nil client; ChatComplete will return error gracefully.
+		return &Engine{client: nil, model: model}
 	}
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("llm returned no choices")
+	return &Engine{client: client, model: model}
+}
+
+// ChatComplete sends a system + user message to Gemini and returns the response text.
+func (e *Engine) ChatComplete(ctx context.Context, system, user string) (string, error) {
+	if e.client == nil {
+		return "", fmt.Errorf("gemini client not initialised (check GEMINI_API_KEY)")
 	}
-	return resp.Choices[0].Message.Content, nil
+
+	contents := []*genai.Content{
+		{Role: "user", Parts: []*genai.Part{
+			{Text: user},
+		}},
+	}
+
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: system}},
+		},
+	}
+
+	resp, err := e.client.Models.GenerateContent(ctx, e.model, contents, config)
+	if err != nil {
+		return "", fmt.Errorf("gemini generate: %w", err)
+	}
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini returned no content")
+	}
+	return resp.Candidates[0].Content.Parts[0].Text, nil
 }
