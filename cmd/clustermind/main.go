@@ -52,7 +52,7 @@ Usage:
   clustermind impact  --target Service/demo/payment-svc
 
 Environment variables:
-  OPENAI_API_KEY          LLM API key (required for AI features)
+  GEMINI_API_KEY          Gemini API key (required for AI features)
   KUBECONFIG              kubeconfig path (default: ~/.kube/config)
   CLUSTERMIND_PORT        API server port (default: 8080)
   CLUSTERMIND_NAMESPACE   namespace to collect (default: all)
@@ -69,7 +69,7 @@ func runServe() {
 	collector := probe.NewClusterCollector(clientset, ns)
 	builder := graph.NewGraphBuilder()
 	renderer := render.NewRenderer()
-	engine := aiPkg.NewEngine(os.Getenv("OPENAI_API_KEY"), "")
+	engine := aiPkg.NewEngine(os.Getenv("GEMINI_API_KEY"), "")
 	analyzer := aiPkg.NewAnalyzer(engine)
 
 	srv := api.NewServer(collector, builder, renderer, analyzer, engine)
@@ -104,12 +104,12 @@ func runAnalyze() {
 	}
 	fmt.Println()
 
-	engine := aiPkg.NewEngine(os.Getenv("OPENAI_API_KEY"), "")
+	engine := aiPkg.NewEngine(os.Getenv("GEMINI_API_KEY"), "")
 	system, user := aiPkg.ClusterSummaryPrompt(snap, g)
 	summary, err := engine.ChatComplete(ctx, system, user)
 	if err != nil {
 		slog.Warn("AI summary unavailable", "error", err)
-		fmt.Println("[AI summary unavailable — check OPENAI_API_KEY]")
+		fmt.Println("[AI summary unavailable — check GEMINI_API_KEY]")
 		return
 	}
 	fmt.Println("=== AI Summary ===")
@@ -138,7 +138,7 @@ func runImpact() {
 	builder := graph.NewGraphBuilder()
 	g := builder.Build(snap)
 
-	engine := aiPkg.NewEngine(os.Getenv("OPENAI_API_KEY"), "")
+	engine := aiPkg.NewEngine(os.Getenv("GEMINI_API_KEY"), "")
 	analyzer := aiPkg.NewAnalyzer(engine)
 
 	result, err := analyzer.AnalyzeFailure(ctx, target, g)
