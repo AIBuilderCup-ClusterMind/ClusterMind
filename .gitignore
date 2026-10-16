@@ -1,0 +1,27 @@
+# Go
+bin/
+*.exe
+*.test
+coverage.out
+coverage.html
+
+# Web
+web/node_modules/
+web/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+
+# OpenCode
+.omo/
