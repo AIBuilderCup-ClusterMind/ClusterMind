@@ -1,7 +1,7 @@
 import { Layers } from 'lucide-react'
 import { ClusterGraph } from './components/ClusterGraph'
-import { ImpactPanel } from './components/ImpactPanel'
-import { ResourceTree } from './components/ResourceTree'
+import { NamespacePanel } from './components/NamespacePanel'
+import { RightPanel } from './components/RightPanel'
 import { useCluster } from './hooks/useCluster'
 
 function Header() {
@@ -42,9 +42,9 @@ export default function App() {
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
       <Header />
       <div className="flex flex-1 min-h-0">
-        {/* Left: Resource tree sidebar */}
-        <aside className="w-52 flex-shrink-0 border-r border-slate-200 bg-white overflow-hidden">
-          <ResourceTree />
+        {/* Left: Namespace & resource status sidebar */}
+        <aside className="w-72 flex-shrink-0 border-r border-slate-200 bg-white overflow-hidden">
+          <NamespacePanel />
         </aside>
 
         {/* Center: React Flow canvas */}
@@ -52,8 +52,8 @@ export default function App() {
           <ClusterGraph />
         </main>
 
-        {/* Right: Impact panel */}
-        <ImpactPanel />
+        {/* Right: Details / Impact tabs */}
+        <RightPanel />
       </div>
     </div>
   )

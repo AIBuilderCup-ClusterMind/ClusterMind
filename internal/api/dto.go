@@ -1,7 +1,10 @@
 // Package api defines REST API request/response DTOs.
 package api
 
-import "github.com/clustermind/clustermind/internal/render"
+import (
+	"github.com/clustermind/clustermind/internal/probe"
+	"github.com/clustermind/clustermind/internal/render"
+)
 
 // ImpactRequest is the POST /api/v1/impact request body.
 type ImpactRequest struct {
@@ -33,4 +36,15 @@ type SnapshotSummary struct {
 // ErrorResponse is a generic error response body.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+// NamespaceListResponse is the GET /api/v1/namespaces response body.
+type NamespaceListResponse struct {
+	Namespaces []probe.NamespaceResourceStats `json:"namespaces"`
+}
+
+// NamespaceResourcesResponse is the GET /api/v1/namespaces/:namespace/resources response body.
+type NamespaceResourcesResponse struct {
+	Namespace string                   `json:"namespace"`
+	Resources []probe.ResourceStatus   `json:"resources"`
 }

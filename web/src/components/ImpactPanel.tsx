@@ -13,7 +13,7 @@ export function ImpactPanel() {
   }
 
   return (
-    <div className="w-80 flex flex-col border-l border-slate-200 bg-white overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
         <div className="flex items-center gap-2">

@@ -17,7 +17,7 @@ build:
 	go build -o bin/clustermind ./cmd/clustermind
 
 run-backend: build
-	CLUSTERMIND_NAMESPACE=demo ./bin/clustermind serve --port 8080
+	./bin/clustermind serve --port 8080
 
 run-frontend:
 	cd web && npm run dev

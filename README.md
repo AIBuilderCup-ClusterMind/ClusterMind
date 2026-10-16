@@ -20,6 +20,9 @@ It collects cluster resources (read-only), builds a dependency graph via label-s
 - **Automatic Dependency Graph**: Infers edges from Label Selectors, Ingress backends, HPA targets, ConfigMap mounts, and name-prefix heuristics — with per-edge confidence scores.
 - **AI Failure Impact Analysis**: BFS graph traversal (depth ≤ 5) feeds into an LLM that reasons about propagation paths, business consequences, and severity (critical / high / medium / low).
 - **Interactive React Flow Graph**: Drag, zoom, minimap — failure nodes highlighted with animated colour coding in real time.
+- **Per-Namespace Resource Status**: Every namespace is listed with a status rollup (Healthy / Degraded / Warning / Pending); expanding a namespace shows each resource's live health, ready ratio, and reason.
+- **Node Detail Panel**: Click any node on the graph to open a right-side detail panel with live status, metadata, upstream/downstream dependencies, and a one-click "Analyze Impact" action.
+- **One-Shot Runner**: `./run.sh` builds the Go backend, installs frontend deps, and launches both servers concurrently.
 - **Safe Secret Handling**: `Secret.Data` is set to `nil` immediately after collection; secret values never appear in API responses or logs.
 - **SSE Live Watch**: Streams cluster change events every 30 seconds for always-current topology.
 - **CLI + REST API**: `serve`, `analyze`, `impact` CLI commands backed by a Gin HTTP server.
@@ -38,7 +41,24 @@ It collects cluster resources (read-only), builds a dependency graph via label-s
 
 ## Quick Start & Demo Flow
 
-### 1. Build the Binary
+### Option A — One-Shot Runner (recommended)
+
+```bash
+# Builds backend + frontend deps, then starts both servers
+./run.sh
+
+# Restrict to a single namespace
+./run.sh --namespace demo
+
+# Custom port / skip npm install
+./run.sh --port 9090 --skip-install
+```
+
+`./run.sh` defaults to **all namespaces** (including `default`). Backend runs on `:8080`, frontend on `:5173`.
+
+### Option B — Manual Steps
+
+#### 1. Build the Binary
 
 ```bash
 go mod tidy
@@ -46,37 +66,37 @@ make build
 # → bin/clustermind
 ```
 
-### 2. Install Frontend Dependencies
+#### 2. Install Frontend Dependencies
 
 ```bash
 cd web && npm install && cd ..
 ```
 
-### 3. Set Environment Variables
+#### 3. Set Environment Variables
 
 ```bash
 export GEMINI_API_KEY=AIza...          # Required for AI features (https://aistudio.google.com/apikey)
 export KUBECONFIG=~/.kube/config      # kubeconfig path (default)
-export CLUSTERMIND_NAMESPACE=demo     # Namespace to collect (empty = all)
+export CLUSTERMIND_NAMESPACE=          # Namespace to collect (empty = all namespaces)
 export CLUSTERMIND_PORT=8080          # API server port
 export CLUSTERMIND_LOG_LEVEL=INFO     # Log level: DEBUG|INFO|WARN|ERROR
 ```
 
-### 4. Create a Local Demo Cluster (kind)
+#### 4. Create a Local Demo Cluster (kind)
 
 ```bash
 # Spins up a kind cluster and applies mock resources (no real cluster needed)
 make demo
 ```
 
-### 5. Start the Backend API Server
+#### 5. Start the Backend API Server
 
 ```bash
 make run-backend
 # → http://localhost:8080
 ```
 
-### 6. Start the Frontend Dev Server
+#### 6. Start the Frontend Dev Server
 
 ```bash
 make run-frontend
@@ -86,41 +106,54 @@ make run-frontend
 Open `http://localhost:5173` in your browser to see the interactive cluster graph:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-|  ClusterMind   AI Infrastructure Digital Twin       [demo]   |
-├──────────────┬──────────────────────────────────┬───────────────┤
-| Resources    |                                  | Impact        |
-|  Ingress (1) |   [ingress-nginx]                |  Simulator    |
-│  Service (5) │          │                       │               │
-|  Deployment  |   [frontend-svc]                 | Target:       |
-│    (4)       │          │                       │ [Select ▼]   │
-|              |   [frontend-deploy]               |               |
-│              │          │                       │ [▶ Analyze]   │
-|              |   [api-svc] ----> [payment-svc]  |               |
-│              │          │           │            │               │
-|              |   [api-deploy]    [payment]      |               |
-└──────────────┴──────────────────────────────────┴───────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  ClusterMind   AI Infrastructure Digital Twin              [ns badges]  │
+├────────────────┬───────────────────────────────────┬─────────────────────┤
+│ Namespaces     │                                   │ Details | Impact    │
+│ ▸ default (12) │   [ingress-nginx]                 │ ── Details tab ──   │
+│   🟢 Healthy   │          │                        │ Status: 🟢 Healthy  │
+│ ▸ demo (9)     │   [frontend-svc]                  │ Ready:  3/3         │
+│   🔴 Degraded  │          │                        │ Reason: Available   │
+│                │   [frontend-deploy]               │                     │
+│ (expand a ns   │          │                        │ Metadata            │
+│  to see each   │   [api-svc] ────> [payment-svc]   │  Kind:  Service     │
+│  resource +    │          │            │           │  NS:    demo        │
+│  status dot)   │   [api-deploy]     [payment]      │                     │
+│                │                                   │ Dependencies        │
+│                │   (click a node → detail panel)   │  ↑ api-svc          │
+│                │                                   │  ↓ payment-deploy   │
+│                │                                   │ [▶ Analyze Impact]  │
+└────────────────┴───────────────────────────────────┴─────────────────────┘
 ```
 
-### 7. Simulate a Failure (Web UI)
+### 7. Explore & Simulate a Failure (Web UI)
 
 ```
-1. Select a resource in the right-hand "Impact Simulator" panel
-   e.g. [Service] payment-svc
+Namespace panel (left):
+  1. Expand a namespace to see all resources with live status dots
+     🟢 Healthy  🔴 Degraded  🟡 Warning  🔵 Pending
 
-2. Click [Analyze]
-   → POST /api/v1/impact { "target": "Service/demo/payment-svc" }
-   → BFS graph traversal (depth ≤ 5)
-   → LLM severity & impact reasoning
+Node detail panel (right — Details tab):
+  2. Click any node on the graph
+     → Status: live phase, ready ratio, reason, age
+     → Metadata: kind, name, namespace, resource ID, replicas
+     → Dependencies: upstream / downstream connections (clickable)
+     → [Analyze Impact] button runs failure analysis directly
 
-3. React Flow graph updates with colour highlighting
-   [CRITICAL] payment-svc          <- failure origin   (red border + animate-pulse)
-   [DIRECT]   checkout-deployment  <- direct impact    (orange, animated dashed edge)
-   [INDIRECT] order-svc            <- indirect impact  (yellow)
-   [INDIRECT] notification-svc     <- indirect impact  (yellow)
-   [OK]       frontend-svc         <- unaffected       (white)
+Impact simulator (right — Impact tab):
+  3. Click [Analyze Impact] (or select a target and click Analyze)
+     → POST /api/v1/impact { "target": "Service/demo/payment-svc" }
+     → BFS graph traversal (depth ≤ 5)
+     → LLM severity & impact reasoning
 
-4. AI natural-language explanation + severity badge appear in the right panel
+  4. React Flow graph updates with colour highlighting
+     [CRITICAL] payment-svc          <- failure origin   (red border + animate-pulse)
+     [DIRECT]   checkout-deployment  <- direct impact    (orange, animated dashed edge)
+     [INDIRECT] order-svc            <- indirect impact  (yellow)
+     [INDIRECT] notification-svc     <- indirect impact  (yellow)
+     [OK]       frontend-svc         <- unaffected       (white)
+
+  5. AI natural-language explanation + severity badge appear in the Impact tab
 ```
 
 ### 8. CLI Blast-Radius Analysis
@@ -185,24 +218,38 @@ go test -v ./...
 
 ```
 clustermind/
-├── cmd/clustermind/main.go        # CLI entrypoint (serve / analyze / impact)
+├── run.sh                          # One-shot build & run (backend + frontend)
+├── cmd/clustermind/main.go         # CLI entrypoint (serve / analyze / impact)
 ├── internal/
-│   ├── probe/                     # K8s resource collection
-│   ├── graph/                     # Dependency edge inference
-│   ├── ai/                        # LLM engine, prompts, impact analysis
-│   ├── render/                    # React Flow JSON conversion
-│   └── api/                       # Gin HTTP server + handlers + DTOs
+│   ├── probe/                      # K8s resource collection + status extraction
+│   │   ├── collector.go
+│   │   ├── snapshot.go
+│   │   └── status.go              # Per-resource health normalization
+│   ├── graph/                      # Dependency edge inference
+│   ├── ai/                         # LLM engine, prompts, impact analysis
+│   ├── render/                     # React Flow JSON conversion
+│   └── api/                        # Gin HTTP server + handlers + DTOs
 ├── web/src/
-│   ├── components/                # ClusterGraph, ImpactPanel, ResourceTree, SeverityBadge
-│   ├── hooks/                     # useCluster (React Query), useImpact (Zustand)
-│   ├── api/client.ts              # Typed fetch wrappers
-│   └── types/index.ts             # TypeScript types mirroring Go DTOs
+│   ├── components/
+│   │   ├── ClusterGraph.tsx        # React Flow canvas + node click handling
+│   │   ├── NamespacePanel.tsx      # Namespace tree with status dots
+│   │   ├── NodeDetailPanel.tsx     # Right-side node detail panel
+│   │   ├── RightPanel.tsx          # Details / Impact tab container
+│   │   ├── ImpactPanel.tsx         # Failure impact simulator
+│   │   └── SeverityBadge.tsx
+│   ├── hooks/
+│   │   ├── useCluster.ts           # Graph fetching (React Query)
+│   │   ├── useImpact.ts            # Impact analysis state (Zustand)
+│   │   ├── useNamespaces.ts        # Namespace + resource status fetching
+│   │   └── useSelection.ts         # Selected node state (Zustand)
+│   ├── api/client.ts               # Typed fetch wrappers
+│   └── types/index.ts              # TypeScript types mirroring Go DTOs
 ├── tests/
-│   ├── fixtures/mock_snapshot.go  # Mock cluster data
-│   └── graph_builder_test.go      # Unit tests
+│   ├── fixtures/mock_snapshot.go   # Mock cluster data
+│   └── graph_builder_test.go       # Unit tests
 └── demo/
-    ├── mock_cluster.yaml          # Demo K8s resources
-    └── run_demo.sh                # One-shot setup script
+    ├── mock_cluster.yaml           # Demo K8s resources
+    └── run_demo.sh                 # One-shot setup script
 ```
 
 ---
@@ -213,6 +260,8 @@ clustermind/
 |--------|------|-------------|
 | `GET` | `/api/v1/cluster/snapshot` | Resource count summary by kind |
 | `GET` | `/api/v1/cluster/graph` | React Flow nodes + edges JSON |
+| `GET` | `/api/v1/namespaces` | All namespaces with resource counts + status rollup |
+| `GET` | `/api/v1/namespaces/:namespace/resources?kind=Pod` | Resources in a namespace with live health status |
 | `POST` | `/api/v1/impact` | Failure blast-radius analysis |
 | `GET` | `/api/v1/watch` | SSE stream for live cluster changes |
 | `GET` | `/health` | Health check |

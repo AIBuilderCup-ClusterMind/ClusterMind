@@ -1,4 +1,10 @@
-import type { GraphResult, ImpactResponse, SnapshotSummary } from '../types'
+import type {
+  GraphResult,
+  ImpactResponse,
+  NamespaceListResponse,
+  NamespaceResourcesResponse,
+  SnapshotSummary,
+} from '../types'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
@@ -30,4 +36,20 @@ export function analyzeImpact(target: string): Promise<ImpactResponse> {
     method: 'POST',
     body: JSON.stringify({ target }),
   })
+}
+
+/** Fetch all namespaces with aggregated resource counts and status rollups. */
+export function fetchNamespaces(): Promise<NamespaceListResponse> {
+  return request<NamespaceListResponse>('/api/v1/namespaces')
+}
+
+/** Fetch every resource in a namespace with normalized health status. */
+export function fetchNamespaceResources(
+  namespace: string,
+  kind?: string,
+): Promise<NamespaceResourcesResponse> {
+  const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+  return request<NamespaceResourcesResponse>(
+    `/api/v1/namespaces/${encodeURIComponent(namespace)}/resources${qs}`,
+  )
 }

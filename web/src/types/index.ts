@@ -71,3 +71,42 @@ export interface SnapshotSummary {
   ingresses: number
   hpas: number
 }
+
+// ── Namespace & resource status types ────────────────────────────────────────
+
+export type StatusPhase =
+  | 'Healthy'
+  | 'Degraded'
+  | 'Warning'
+  | 'Pending'
+  | 'Completed'
+  | 'Unknown'
+
+export interface ResourceStatus {
+  kind: string
+  name: string
+  namespace: string
+  phase: StatusPhase
+  ready: string
+  reason: string
+  message: string
+  age: string
+}
+
+export interface NamespaceResourceStats {
+  name: string
+  phase: StatusPhase
+  resourceCount: number
+  counts: Record<string, number>
+  phaseCounts: Record<StatusPhase, number>
+  age: string
+}
+
+export interface NamespaceListResponse {
+  namespaces: NamespaceResourceStats[]
+}
+
+export interface NamespaceResourcesResponse {
+  namespace: string
+  resources: ResourceStatus[]
+}

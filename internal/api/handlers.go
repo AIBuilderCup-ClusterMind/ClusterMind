@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/clustermind/clustermind/internal/probe"
 )
 
 // handleSnapshot returns a lightweight summary of collected cluster resources.
@@ -127,4 +129,52 @@ func (s *Server) handleWatch(c *gin.Context) {
 			return
 		}
 	}
+}
+
+// handleListNamespaces returns every namespace with aggregated resource
+// counts and a phase rollup derived from each namespace's resources.
+func (s *Server) handleListNamespaces(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	snap, err := s.collector.Collect(ctx)
+	if err != nil {
+		slog.Error("collect failed", "error", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("collect: %s", err)})
+		return
+	}
+
+	statuses := probe.ExtractResourceStatuses(snap)
+	stats := probe.BuildNamespaceStats(snap, statuses)
+
+	c.JSON(http.StatusOK, NamespaceListResponse{Namespaces: stats})
+}
+
+// handleNamespaceResources returns every resource in the given namespace
+// with its normalized health status. Supports an optional ?kind= filter.
+func (s *Server) handleNamespaceResources(c *gin.Context) {
+	ns := c.Param("namespace")
+	if ns == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "namespace path parameter is required"})
+		return
+	}
+	kindFilter := c.Query("kind")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	snap, err := s.collector.Collect(ctx)
+	if err != nil {
+		slog.Error("collect failed", "error", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("collect: %s", err)})
+		return
+	}
+
+	statuses := probe.ExtractResourceStatuses(snap)
+	filtered := probe.FilterStatuses(statuses, ns, kindFilter)
+
+	c.JSON(http.StatusOK, NamespaceResourcesResponse{
+		Namespace: ns,
+		Resources: filtered,
+	})
 }

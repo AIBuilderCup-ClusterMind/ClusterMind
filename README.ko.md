@@ -33,6 +33,9 @@
 | **장애 영향 범위 분석** | BFS 탐색(depth ≤ 5) + LLM 추론으로 전파 경로·심각도 계산 |
 | **React Flow 인터랙티브 그래프** | 드래그·줌·미니맵 가능한 실시간 노드 그래프 |
 | **장애 색상 하이라이트** | critical(빨강+pulse) / direct(주황) / indirect(노랑) / none(흰색) |
+| **네임스페이스별 리소스 상태** | 모든 네임스페이스를 Healthy/Degraded/Warning/Pending 상태 rollup과 함께 표시, 네임스페이스를 펼치면 각 리소스의 실시간 상태·ready 비율·사유 확인 가능 |
+| **노드 상세 정보 패널** | 그래프에서 노드를 클릭하면 우측에 실시간 상태·메타데이터·상하류 의존관계·"Analyze Impact" 버튼이 표시되는 상세 패널 |
+| **원샷 실행 스크립트** | `./run.sh` 한 번으로 Go 백엔드 빌드 + 프론트엔드 의존성 설치 + 두 서버 동시 기동 |
 | **SSE 실시간 감시** | 30초 간격으로 클러스터 변경 스트리밍 |
 | **CLI** | `serve`, `analyze`, `impact` 커맨드 제공 |
 
@@ -42,6 +45,8 @@
 |--------|------|------|
 | `GET` | `/api/v1/cluster/snapshot` | 리소스 종류별 개수 요약 |
 | `GET` | `/api/v1/cluster/graph` | React Flow nodes+edges JSON |
+| `GET` | `/api/v1/namespaces` | 전체 네임스페이스 + 리소스 수 + 상태 rollup |
+| `GET` | `/api/v1/namespaces/:namespace/resources?kind=Pod` | 네임스페이스 내 리소스 목록 + 실시간 상태 |
 | `POST` | `/api/v1/impact` | 장애 영향 범위 분석 |
 | `GET` | `/api/v1/watch` | SSE 스트림 (클러스터 변경 감지) |
 | `GET` | `/health` | 헬스체크 |
@@ -68,41 +73,47 @@
 
 ```
 clustermind/
-├── cmd/clustermind/main.go        # CLI 진입점 (serve / analyze / impact)
+├── run.sh                          # 원샷 빌드 & 실행 (백엔드 + 프론트엔드)
+├── cmd/clustermind/main.go         # CLI 진입점 (serve / analyze / impact)
 ├── internal/
 │   ├── probe/
-│   │   ├── collector.go           # K8s 리소스 수집
-│   │   └── snapshot.go            # ClusterSnapshot 구조체
+│   │   ├── collector.go            # K8s 리소스 수집
+│   │   ├── snapshot.go             # ClusterSnapshot 구조체
+│   │   └── status.go               # 리소스별 상태 정규화
 │   ├── graph/
-│   │   ├── builder.go             # 의존성 Edge 추론
-│   │   └── models.go              # ResourceNode / DependencyEdge 타입
+│   │   ├── builder.go              # 의존성 Edge 추론
+│   │   └── models.go               # ResourceNode / DependencyEdge 타입
 │   ├── ai/
-│   │   ├── engine.go              # LLM 호출 추상화
-│   │   ├── prompts.go             # 프롬프트 템플릿
-│   │   └── impact.go              # BFS 탐색 + LLM 장애 분석
+│   │   ├── engine.go               # LLM 호출 추상화
+│   │   ├── prompts.go              # 프롬프트 템플릿
+│   │   └── impact.go               # BFS 탐색 + LLM 장애 분석
 │   ├── render/
-│   │   └── graph.go               # React Flow JSON 변환
+│   │   └── graph.go                # React Flow JSON 변환
 │   └── api/
-│       ├── server.go              # Gin HTTP 서버
-│       ├── handlers.go            # REST 핸들러
-│       └── dto.go                 # 요청/응답 DTO
+│       ├── server.go               # Gin HTTP 서버
+│       ├── handlers.go             # REST 핸들러
+│       └── dto.go                  # 요청/응답 DTO
 ├── web/src/
 │   ├── components/
-│   │   ├── ClusterGraph.tsx       # React Flow 캔버스 + 커스텀 노드
-│   │   ├── ImpactPanel.tsx        # 장애 시뮬레이션 패널
-│   │   ├── ResourceTree.tsx       # 리소스 사이드바
-│   │   └── SeverityBadge.tsx      # 심각도 뱃지
+│   │   ├── ClusterGraph.tsx        # React Flow 캔버스 + 노드 클릭 처리
+│   │   ├── NamespacePanel.tsx      # 네임스페이스 트리 + 상태 점 표시
+│   │   ├── NodeDetailPanel.tsx     # 우측 노드 상세 정보 패널
+│   │   ├── RightPanel.tsx          # Details / Impact 탭 컨테이너
+│   │   ├── ImpactPanel.tsx         # 장애 시뮬레이션 패널
+│   │   └── SeverityBadge.tsx       # 심각도 뱃지
 │   ├── hooks/
-│   │   ├── useCluster.ts          # 그래프 데이터 fetching (30초 폴링)
-│   │   └── useImpact.ts           # 장애 시뮬레이션 상태
-│   ├── api/client.ts              # fetch 래퍼
-│   └── types/index.ts             # Go DTO 미러링 TypeScript 타입
+│   │   ├── useCluster.ts           # 그래프 데이터 fetching (30초 폴링)
+│   │   ├── useImpact.ts            # 장애 시뮬레이션 상태 (Zustand)
+│   │   ├── useNamespaces.ts        # 네임스페이스 + 리소스 상태 fetching
+│   │   └── useSelection.ts         # 선택된 노드 상태 (Zustand)
+│   ├── api/client.ts               # fetch 래퍼
+│   └── types/index.ts              # Go DTO 미러링 TypeScript 타입
 ├── tests/
-│   ├── fixtures/mock_snapshot.go  # 테스트용 mock 클러스터 데이터
-│   └── graph_builder_test.go      # 그래프 빌더 유닛 테스트
+│   ├── fixtures/mock_snapshot.go   # 테스트용 mock 클러스터 데이터
+│   └── graph_builder_test.go       # 그래프 빌더 유닛 테스트
 └── demo/
-    ├── mock_cluster.yaml          # 시연용 K8s 리소스 (Namespace + 5 Services + 4 Deployments + Ingress)
-    └── run_demo.sh                # 데모 환경 자동 구성 스크립트
+    ├── mock_cluster.yaml           # 시연용 K8s 리소스 (Namespace + 5 Services + 4 Deployments + Ingress)
+    └── run_demo.sh                 # 데모 환경 자동 구성 스크립트
 ```
 
 ---
@@ -121,7 +132,24 @@ clustermind/
 
 ## 실행 방법
 
-### 1. 레포 클론 및 빌드
+### 방법 A — 원샷 실행 스크립트 (권장)
+
+```bash
+# 백엔드 + 프론트엔드 의존성 빌드 후 두 서버 동시 기동
+./run.sh
+
+# 특정 네임스페이스만 수집
+./run.sh --namespace demo
+
+# 커스텀 포트 / npm install 생략
+./run.sh --port 9090 --skip-install
+```
+
+`./run.sh`는 기본값으로 **전체 네임스페이스**(`default` 포함)를 수집합니다. 백엔드는 `:8080`, 프론트엔드는 `:5173`에서 기동됩니다.
+
+### 방법 B — 수동 단계
+
+#### 1. 레포 클론 및 빌드
 
 ```bash
 git clone https://github.com/your-org/clustermind
@@ -136,12 +164,12 @@ make build
 cd web && npm install && cd ..
 ```
 
-### 2. 환경 변수 설정
+#### 2. 환경 변수 설정
 
 ```bash
 export GEMINI_API_KEY=AIza...                       # LLM API 키 (AI 기능 필수)
 export KUBECONFIG=~/.kube/config                    # kubeconfig 경로 (기본값)
-export CLUSTERMIND_NAMESPACE=demo                   # 수집 네임스페이스 (빈값=전체)
+export CLUSTERMIND_NAMESPACE=                       # 수집 네임스페이스 (빈값=전체)
 export CLUSTERMIND_PORT=8080                        # API 서버 포트
 export CLUSTERMIND_LOG_LEVEL=INFO                   # 로그 레벨: DEBUG|INFO|WARN|ERROR
 ```
@@ -170,20 +198,24 @@ make run-frontend
 브라우저에서 `http://localhost:5173` 접속하면 아래 화면이 표시됩니다:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  🧠 ClusterMind   AI Infrastructure Digital Twin       [demo]   │
-├──────────────┬──────────────────────────────────┬───────────────┤
-│ Resources    │                                  │ ⚠️ Impact     │
-│  Ingress (1) │   [🌐 ingress-nginx]             │  Simulator    │
-│  Service (5) │          │                       │               │
-│  Deployment  │   [⚙️ frontend-svc]              │ Target:       │
-│    (4)       │          │                       │ [Select ▼]   │
-│              │   [📦 frontend-deploy]            │               │
-│              │          │                       │ [▶ Analyze]   │
-│              │   [⚙️ api-svc] ──▶ [⚙️ payment-svc]│            │
-│              │          │           │            │               │
-│              │   [📦 api-deploy]  [📦 payment]  │               │
-└──────────────┴──────────────────────────────────┴───────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  🧠 ClusterMind   AI Infrastructure Digital Twin           [ns badges]  │
+├────────────────┬───────────────────────────────────┬─────────────────────┤
+│ 네임스페이스    │                                   │ 상세 | 영향분석      │
+│ ▸ default (12) │   [🌐 ingress-nginx]              │ ── 상세 탭 ──        │
+│   🟢 Healthy   │          │                        │ 상태: 🟢 Healthy     │
+│ ▸ demo (9)     │   [⚙️ frontend-svc]               │ Ready:  3/3          │
+│   🔴 Degraded  │          │                        │ 사유: Available      │
+│                │   [📦 frontend-deploy]            │                      │
+│ (네임스페이스   │          │                        │ 메타데이터           │
+│  펼치면 각     │   [⚙️ api-svc] ──▶ [⚙️ payment-svc]│  Kind:  Service     │
+│  리소스 +      │          │           │            │  NS:    demo         │
+│  상태 점 표시) │   [📦 api-deploy]  [📦 payment]   │                      │
+│                │                                   │ 의존관계             │
+│                │   (노드 클릭 → 상세 패널)          │  ↑ api-svc           │
+│                │                                   │  ↓ payment-deploy    │
+│                │                                   │ [▶ 영향 분석]        │
+└────────────────┴───────────────────────────────────┴─────────────────────┘
 ```
 
 ---
@@ -193,7 +225,7 @@ make run-frontend
 ```bash
 # kubeconfig가 실제 클러스터를 가리키는 상태에서 실행
 export KUBECONFIG=~/.kube/config
-export CLUSTERMIND_NAMESPACE=""   # 전체 네임스페이스 수집
+export CLUSTERMIND_NAMESPACE=""   # 전체 네임스페이스 수집 (기본값)
 
 make run-backend
 make run-frontend
@@ -234,23 +266,32 @@ React Flow JSON → cluster_impact.json 저장됨
 ## 장애 시뮬레이션 데모 (Web UI)
 
 ```
-① 우측 「Impact Simulator」 패널에서 장애 대상 선택
-   예) [Service] payment-svc
+네임스페이스 패널 (좌측):
+  ① 네임스페이스를 펼치면 리소스별 실시간 상태 점 확인
+     🟢 Healthy  🔴 Degraded  🟡 Warning  🔵 Pending
 
-② [▶ Analyze] 클릭
-   → POST /api/v1/impact { "target": "Service/demo/payment-svc" }
-   → BFS 그래프 탐색 (depth ≤ 5)
-   → LLM 심각도·영향 추론
+노드 상세 패널 (우측 — 상세 탭):
+  ② 그래프에서 노드 클릭
+     → 상태: 실시간 phase, ready 비율, 사유, age
+     → 메타데이터: kind, name, namespace, resource ID, replicas
+     → 의존관계: 상하류 연결 목록 (클릭하여 해당 노드로 이동)
+     → [영향 분석] 버튼으로 바로 장애 분석 실행
 
-③ 결과 — React Flow 그래프 색상 강조
-   🔴 payment-svc          ← 장애 원점  (빨강 + animate-pulse)
-   🟠 checkout-deployment  ← 직접 영향  (주황, 점선 애니메이션 엣지)
-   🟡 order-svc            ← 간접 영향  (노랑)
-   🟡 notification-svc     ← 간접 영향  (노랑)
-   ⚪ frontend-svc         ← 미영향    (흰색)
+장애 시뮬레이터 (우측 — 영향분석 탭):
+  ③ [영향 분석] 클릭 (또는 대상을 선택 후 Analyze)
+     → POST /api/v1/impact { "target": "Service/demo/payment-svc" }
+     → BFS 그래프 탐색 (depth ≤ 5)
+     → LLM 심각도·영향 추론
 
-④ AI 자연어 설명이 우측 패널에 표시됨
-   severity: CRITICAL / HIGH / MEDIUM / LOW
+  ④ 결과 — React Flow 그래프 색상 강조
+     🔴 payment-svc          ← 장애 원점  (빨강 + animate-pulse)
+     🟠 checkout-deployment  ← 직접 영향  (주황, 점선 애니메이션 엣지)
+     🟡 order-svc            ← 간접 영향  (노랑)
+     🟡 notification-svc     ← 간접 영향  (노랑)
+     ⚪ frontend-svc         ← 미영향    (흰색)
+
+  ⑤ AI 자연어 설명이 영향분석 탭에 표시됨
+     severity: CRITICAL / HIGH / MEDIUM / LOW
 ```
 
 ---

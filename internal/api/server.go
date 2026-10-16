@@ -58,6 +58,8 @@ func (s *Server) registerRoutes() {
 			cluster.GET("/snapshot", s.handleSnapshot)
 			cluster.GET("/graph", s.handleGraph)
 		}
+		v1.GET("/namespaces", s.handleListNamespaces)
+		v1.GET("/namespaces/:namespace/resources", s.handleNamespaceResources)
 		v1.POST("/impact", s.handleImpact)
 		v1.GET("/watch", s.handleWatch)
 	}

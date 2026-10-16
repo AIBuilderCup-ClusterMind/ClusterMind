@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import {
   ReactFlow,
   Background,
@@ -13,6 +14,7 @@ import { Globe, Package, Network, Box, Server } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useCluster } from '../hooks/useCluster'
 import { useImpact } from '../hooks/useImpact'
+import { useSelection } from '../hooks/useSelection'
 import type { FlowNodeData } from '../types'
 
 // ── Impact-level → Tailwind classes ──────────────────────────────────────────
@@ -30,14 +32,16 @@ interface NodeShellProps {
   data: FlowNodeData
   icon: React.ReactNode
   accentColor: string
+  selected?: boolean
 }
 
-function NodeShell({ data, icon, accentColor }: NodeShellProps) {
+function NodeShell({ data, icon, accentColor, selected }: NodeShellProps) {
   return (
     <div
       className={clsx(
         'px-3 py-2 rounded-xl border-2 min-w-[140px] max-w-[200px] transition-all cursor-pointer select-none',
         impactClasses[data.impactLevel] ?? impactClasses.none,
+        selected && 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-50',
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-300" />
@@ -60,52 +64,57 @@ function NodeShell({ data, icon, accentColor }: NodeShellProps) {
 
 // ── Custom node types ─────────────────────────────────────────────────────────
 
-function ServiceNode({ data }: NodeProps) {
+function ServiceNode({ data, selected }: NodeProps) {
   return (
     <NodeShell
       data={data as FlowNodeData}
       icon={<Network className="w-4 h-4" />}
       accentColor="text-blue-500"
+      selected={selected}
     />
   )
 }
 
-function DeploymentNode({ data }: NodeProps) {
+function DeploymentNode({ data, selected }: NodeProps) {
   return (
     <NodeShell
       data={data as FlowNodeData}
       icon={<Package className="w-4 h-4" />}
       accentColor="text-green-500"
+      selected={selected}
     />
   )
 }
 
-function IngressNode({ data }: NodeProps) {
+function IngressNode({ data, selected }: NodeProps) {
   return (
     <NodeShell
       data={data as FlowNodeData}
       icon={<Globe className="w-4 h-4" />}
       accentColor="text-purple-500"
+      selected={selected}
     />
   )
 }
 
-function StatefulSetNode({ data }: NodeProps) {
+function StatefulSetNode({ data, selected }: NodeProps) {
   return (
     <NodeShell
       data={data as FlowNodeData}
       icon={<Server className="w-4 h-4" />}
       accentColor="text-teal-500"
+      selected={selected}
     />
   )
 }
 
-function DefaultNode({ data }: NodeProps) {
+function DefaultNode({ data, selected }: NodeProps) {
   return (
     <NodeShell
       data={data as FlowNodeData}
       icon={<Box className="w-4 h-4" />}
       accentColor="text-slate-500"
+      selected={selected}
     />
   )
 }
@@ -123,10 +132,28 @@ const nodeTypes = {
 export function ClusterGraph() {
   const { nodes: clusterNodes, edges: clusterEdges, isLoading, error } = useCluster()
   const { result } = useImpact()
+  const { selectedId, select, clear } = useSelection()
 
   // When an impact analysis result exists, use its enriched graph (coloured nodes)
-  const displayNodes = result?.graph.nodes ?? clusterNodes
+  const baseNodes = result?.graph.nodes ?? clusterNodes
   const displayEdges = result?.graph.edges ?? clusterEdges
+
+  // Sync selection state into nodes for the ring highlight.
+  const displayNodes = baseNodes.map((n) => ({
+    ...n,
+    selected: n.id === selectedId,
+  }))
+
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: { id: string; data: unknown }) => {
+      select(node.id, node.data as FlowNodeData)
+    },
+    [select],
+  )
+
+  const handlePaneClick = useCallback(() => {
+    clear()
+  }, [clear])
 
   if (isLoading) {
     return (
@@ -164,6 +191,8 @@ export function ClusterGraph() {
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.1}
