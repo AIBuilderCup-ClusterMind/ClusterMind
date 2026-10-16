@@ -56,7 +56,7 @@
 
 | 레이어 | 기술 |
 |--------|------|
-| 백엔드 | Go 1.22 + Gin + client-go + OpenAI SDK |
+| 백엔드 | Go 1.22 + Gin + client-go + Gemini API (`google.golang.org/genai`) |
 | 프론트엔드 | TypeScript 5 + React 18 + React Flow v12 + ELK.js |
 | 스타일링 | Tailwind CSS |
 | 상태 관리 | React Query (서버) + Zustand (클라이언트) |

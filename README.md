@@ -3,7 +3,8 @@
 [English](./README.md) | [한국어](./README.ko.md)
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
-[![Tests](https://img.shields.io/badge/Tests-4%20passed-brightgreen.svg)](#-test-results)
+[![Gemini](https://img.shields.io/badge/Gemini-2.0--flash-4285F4.svg)](https://aistudio.google.com)
+[![Tests](https://img.shields.io/badge/Tests-4%20passed-brightgreen.svg)](#test-results)
 [![React Flow](https://img.shields.io/badge/React%20Flow-v12-purple.svg)](https://reactflow.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
@@ -222,7 +223,7 @@ clustermind/
 
 | Layer | Technology |
 |-------|------------|
-| Backend | Go 1.22 + Gin + client-go + OpenAI SDK |
+| Backend | Go 1.22 + Gin + client-go + Gemini API (`google.golang.org/genai`) |
 | Frontend | TypeScript 5 + React 18 + React Flow v12 + ELK.js |
 | Styling | Tailwind CSS |
 | State | React Query (server) + Zustand (client) |
