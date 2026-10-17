@@ -12,3 +12,10 @@ coverage.html
 .claude
 .env
 .env.*
+web/.env
+web/.env.*
+*kubeconfig*
+*.key
+*.pem
+*credentials*.json
+*service-account*.json

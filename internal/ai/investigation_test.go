@@ -90,3 +90,60 @@ func TestDetectCauses_Signatures(t *testing.T) {
 	assert.Equal(t, "high", causes[0].Confidence)
 	assert.Equal(t, "medium", causes[1].Confidence)
 }
+
+func TestExtractJSONPayload_Variations(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain json",
+			input:    `{"summary":"all good"}`,
+			expected: `{"summary":"all good"}`,
+		},
+		{
+			name:     "fenced json",
+			input:    "```json\n{\"summary\":\"all good\"}\n```",
+			expected: `{"summary":"all good"}`,
+		},
+		{
+			name:     "conversational preamble and postscript",
+			input:    "Here is the investigation:\n\n{\"summary\":\"issue found\",\"nested\":{\"key\":1}}\n\nLet me know if you need more details.",
+			expected: `{"summary":"issue found","nested":{"key":1}}`,
+		},
+		{
+			name:     "fenced with conversational wrapper",
+			input:    "Below is the analysis:\n```json\n{\"severity\":\"high\"}\n```\nDone.",
+			expected: `{"severity":"high"}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := ExtractJSONPayload(tc.input)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestInvestigate_UnconfiguredEngineFallback(t *testing.T) {
+	// Engine created with no client (e.g. empty API key)
+	eng := &Engine{client: nil, model: "gemini-3.5-flash-lite"}
+	a := NewAnalyzer(eng)
+
+	result := a.Investigate(context.Background(), InvestigationRequest{
+		IncidentID:    "inc-web",
+		PrimaryTarget: "Deployment/demo/web",
+		Health:        "unhealthy",
+		Reason:        "OOMKilled",
+		Timeline: []EvidenceInput{
+			{ID: "e1", Time: "2026-10-18T00:00:00Z", Source: "events", Title: "OOMKilled", Detail: "Killed process"},
+		},
+	}, testGraph())
+
+	require.NotNil(t, result)
+	assert.Equal(t, "fallback", result.GeneratedBy)
+	assert.Contains(t, result.Summary, "Deployment/demo/web is unhealthy")
+	assert.NotEmpty(t, result.PossibleCauses)
+}

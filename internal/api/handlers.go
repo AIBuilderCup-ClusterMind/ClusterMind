@@ -90,6 +90,7 @@ func (s *Server) handleImpact(c *gin.Context) {
 
 	c.JSON(http.StatusOK, ImpactResponse{
 		Target:            impact.Target,
+		GeneratedBy:       impact.GeneratedBy,
 		AffectedResources: impact.AffectedResources,
 		PropagationPaths:  impact.PropagationPaths,
 		Severity:          impact.Severity,

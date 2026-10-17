@@ -17,20 +17,20 @@
 #   PROJECT_ID          GCP project ID (required; falls back to gcloud config)
 #   REGION              Cloud Run region            (default: asia-northeast3)
 #   SERVICE             Cloud Run service name      (default: clustermind)
-#   NAMESPACE           Restrict collection to one K8s namespace (optional)
+#   NAMESPACE           Dedicated demo namespace    (default: demo; required)
 #   GEMINI_API_KEY      Enables AI features; stored in Secret Manager
-#   KUBE_CONTEXT        kubectl context to target   (default: current context)
+#   KUBE_CONTEXT        Remote GKE kubectl context  (required; e.g. gke_...)
 #   RUNTIME_SA          Runtime service account email (default: compute SA)
 #   USE_RAW_KUBECONFIG=1  Upload ~/.kube/config as-is (only if it has no
 #                         exec/plugin auth — e.g. plain token/cert auth)
 #   ALLOW_UNAUTH=0      Deploy as private (default: public for demo)
 #
 # Notes:
-#   * The target cluster's API server MUST be reachable from Cloud Run.
+#   * The target GKE cluster API server MUST be reachable from Cloud Run.
 #     GKE public endpoint works; private IP / localhost does not (needs a
 #     Serverless VPC Access connector — out of scope for this script).
-#   * Step 3 creates a read-only ServiceAccount (ClusterRole "view") in the
-#     target cluster and a long-lived token Secret for it.
+#   * Step 3 provisions a namespace-scoped Role in ${NAMESPACE} (no Secrets)
+#     bound to Cloud Run's service identity and a short-lived TokenRequest token.
 set -euo pipefail
 
 REGION="${REGION:-asia-northeast3}"
@@ -49,7 +49,21 @@ command -v kubectl >/dev/null || fail "kubectl not found"
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID not set (and no gcloud default project)"
 
-info "Project: ${PROJECT_ID}  Region: ${REGION}  Service: ${SERVICE}"
+# Dedicated demo namespace enforcement
+NAMESPACE="${NAMESPACE:-demo}"
+if [[ "${NAMESPACE}" == "default" || "${NAMESPACE}" == "kube-system" || "${NAMESPACE}" == "kube-public" || "${NAMESPACE}" == "kube-node-lease" || "${NAMESPACE}" == "all" || -z "${NAMESPACE}" ]]; then
+  fail "A dedicated demo namespace is required (e.g. NAMESPACE=demo), not cluster-internal/default namespace '${NAMESPACE}'."
+fi
+
+# Resolve Cloud Run runtime service identity
+if [[ -n "${RUNTIME_SA:-}" ]]; then
+  SA_EMAIL="${RUNTIME_SA}"
+else
+  PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+  SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+fi
+
+info "Project: ${PROJECT_ID}  Region: ${REGION}  Service: ${SERVICE}  Namespace: ${NAMESPACE}"
 gcloud config set project "${PROJECT_ID}" >/dev/null
 
 # ── 1. Enable APIs ──────────────────────────────────────────────────────────
@@ -59,6 +73,7 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
+  container.googleapis.com \
   --project="${PROJECT_ID}"
 
 # ── 2. Artifact Registry repo ──────────────────────────────────────────────
@@ -80,15 +95,22 @@ if [[ "${USE_RAW_KUBECONFIG}" == "1" ]]; then
   [[ -f "${KUBECONFIG_SRC}" ]] || fail "kubeconfig not found: ${KUBECONFIG_SRC}"
   cp "${KUBECONFIG_SRC}" "${KUBECONFIG_OUT}"
 else
-  info "Building a container-safe kubeconfig (ServiceAccount token)..."
-  KUBE_CONTEXT="${KUBE_CONTEXT:-$(kubectl config current-context)}"
+  info "Validating remote GKE target and generating least-privilege kubeconfig..."
+  [[ -n "${KUBE_CONTEXT:-}" ]] || fail "KUBE_CONTEXT must be explicitly specified (e.g. KUBE_CONTEXT=gke_my-project_asia-northeast3_demo-cluster). Do not default to local or kind context."
 
-  SERVER="$(kubectl config view --minify --context="${KUBE_CONTEXT}" -o jsonpath='{.clusters[0].cluster.server}')"
-  CA_DATA="$(kubectl config view --minify --context="${KUBE_CONTEXT}" --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  case "${KUBE_CONTEXT}" in
+    *kind*|*minikube*|*docker-desktop*|*local*)
+      fail "KUBE_CONTEXT '${KUBE_CONTEXT}' appears to be a local test cluster. An explicitly selected remote GKE target is required for Cloud Run."
+      ;;
+  esac
+
+  SERVER="$(kubectl config view --minify --context="${KUBE_CONTEXT}" -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)"
+  CA_DATA="$(kubectl config view --minify --context="${KUBE_CONTEXT}" --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' 2>/dev/null || true)"
+  [[ -n "${SERVER}" ]] || fail "Unable to determine cluster server for context '${KUBE_CONTEXT}'"
 
   case "${SERVER}" in
-    https://127.*|https://localhost*)
-      fail "Cluster API server is local (${SERVER}) — unreachable from Cloud Run. Target a remote cluster (e.g. GKE)."
+    https://127.*|https://localhost*|http://127.*|http://localhost*)
+      fail "Cluster API server is local (${SERVER}) — unreachable from Cloud Run. Target a remote GKE cluster."
       ;;
     https://10.*|https://192.168.*|https://172.1[6-9].*|https://172.2[0-9].*|https://172.3[01].*)
       warn "Cluster API server uses a private IP (${SERVER})."
@@ -96,30 +118,61 @@ else
       ;;
   esac
 
+  # Grant GKE viewer role to Cloud Run service identity
+  info "Granting GKE viewer IAM role to Cloud Run service identity (${SA_EMAIL})..."
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/container.viewer" >/dev/null 2>&1 || warn "Could not bind roles/container.viewer to ${SA_EMAIL} (check IAM permissions)."
+
   SA_NAME="clustermind-reader"
-  kubectl create serviceaccount "${SA_NAME}" -n default \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding "${SA_NAME}" \
-    --clusterrole=view --serviceaccount="default:${SA_NAME}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl apply -f - >/dev/null <<EOF
-apiVersion: v1
-kind: Secret
+  info "Configuring least-privilege RBAC in namespace '${NAMESPACE}' (no Secrets)..."
+  kubectl create namespace "${NAMESPACE}" --context="${KUBE_CONTEXT}" --dry-run=client -o yaml | kubectl apply --context="${KUBE_CONTEXT}" -f - >/dev/null
+  kubectl create serviceaccount "${SA_NAME}" -n "${NAMESPACE}" --context="${KUBE_CONTEXT}" --dry-run=client -o yaml | kubectl apply --context="${KUBE_CONTEXT}" -f - >/dev/null
+
+  # Create namespace-scoped Role with no Secrets access, bound to both the K8s SA and Cloud Run service identity
+  cat <<EOF | kubectl apply --context="${KUBE_CONTEXT}" -f - >/dev/null
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
 metadata:
-  name: ${SA_NAME}-token
-  namespace: default
-  annotations:
-    kubernetes.io/service-account.name: ${SA_NAME}
-type: kubernetes.io/service-account-token
+  name: ${SA_NAME}
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${SA_NAME}
+  namespace: ${NAMESPACE}
+subjects:
+  - kind: ServiceAccount
+    name: ${SA_NAME}
+    namespace: ${NAMESPACE}
+  - kind: User
+    name: ${SA_EMAIL}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: ${SA_NAME}
+  apiGroup: rbac.authorization.k8s.io
 EOF
 
-  TOKEN=""
-  for _ in $(seq 1 15); do
-    TOKEN="$(kubectl get secret "${SA_NAME}-token" -n default -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
-    [[ -n "${TOKEN}" ]] && break
-    sleep 1
-  done
-  [[ -n "${TOKEN}" ]] || fail "timed out waiting for SA token secret"
+  info "Requesting bound ServiceAccount token via TokenRequest API..."
+  TOKEN="$(kubectl create token "${SA_NAME}" -n "${NAMESPACE}" --context="${KUBE_CONTEXT}" --duration=8760h 2>/dev/null || true)"
+  if [[ -z "${TOKEN}" ]]; then
+    fail "Failed to generate TokenRequest token for ${SA_NAME} in namespace ${NAMESPACE}"
+  fi
 
   cat > "${KUBECONFIG_OUT}" <<EOF
 apiVersion: v1
@@ -138,9 +191,10 @@ contexts:
   context:
     cluster: clustermind-target
     user: ${SA_NAME}
+    namespace: ${NAMESPACE}
 current-context: clustermind-target
 EOF
-  info "kubeconfig ready (server: ${SERVER}, user: default/${SA_NAME}, role: view)"
+  info "kubeconfig ready (server: ${SERVER}, namespace: ${NAMESPACE}, user: ${NAMESPACE}/${SA_NAME}, role: namespace-scoped reader)"
 fi
 
 # ── 4. Secrets ──────────────────────────────────────────────────────────────
@@ -172,12 +226,6 @@ else
 fi
 
 # ── 5. Runtime SA: grant secret accessor ────────────────────────────────────
-if [[ -n "${RUNTIME_SA:-}" ]]; then
-  SA_EMAIL="${RUNTIME_SA}"
-else
-  PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-  SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-fi
 info "Granting secretAccessor to ${SA_EMAIL}..."
 gcloud secrets add-iam-policy-binding "${KUBE_SECRET}" \
   --member="serviceAccount:${SA_EMAIL}" \
@@ -206,12 +254,9 @@ DEPLOY_ARGS=(
   --min-instances=0
   --max-instances=3
   --service-account="${SA_EMAIL}"
-  --set-env-vars="KUBECONFIG=${KUBE_MOUNT_PATH}"
+  --set-env-vars="KUBECONFIG=${KUBE_MOUNT_PATH},CLUSTERMIND_NAMESPACE=${NAMESPACE}"
   --set-secrets="${SECRETS_LIST}"
 )
-if [[ -n "${NAMESPACE:-}" ]]; then
-  DEPLOY_ARGS+=(--update-env-vars="CLUSTERMIND_NAMESPACE=${NAMESPACE}")
-fi
 if [[ "${ALLOW_UNAUTH}" == "1" ]]; then
   DEPLOY_ARGS+=(--allow-unauthenticated)
 fi

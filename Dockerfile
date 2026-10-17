@@ -23,4 +23,4 @@ COPY --from=build /out/clustermind /clustermind
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/clustermind"]
-CMD ["serve", "--port", "8080"]
+CMD ["serve"]
