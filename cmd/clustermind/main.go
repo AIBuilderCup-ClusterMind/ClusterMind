@@ -62,7 +62,14 @@ Environment variables:
 // --- serve ---
 
 func runServe() {
-	port := flagValue("--port", "CLUSTERMIND_PORT", "8080")
+	// Flag → CLUSTERMIND_PORT → Cloud Run's PORT → 8080.
+	port := flagValue("--port", "CLUSTERMIND_PORT", "")
+	if port == "" {
+		port = os.Getenv("PORT")
+	}
+	if port == "" {
+		port = "8080"
+	}
 	ns := flagValue("--namespace", "CLUSTERMIND_NAMESPACE", "")
 
 	clientset := mustKubeClient()
@@ -72,7 +79,7 @@ func runServe() {
 	engine := aiPkg.NewEngine(os.Getenv("GEMINI_API_KEY"), "")
 	analyzer := aiPkg.NewAnalyzer(engine)
 
-	srv := api.NewServer(collector, builder, renderer, analyzer, engine)
+	srv := api.NewServer(collector, builder, renderer, analyzer, engine, kubeContextName())
 	if err := srv.Run(":" + port); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
@@ -147,7 +154,7 @@ func runImpact() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("[%s] %s 장애 영향 범위\n\n", result.Severity, target)
+	fmt.Printf("[%s] %s failure impact\n\n", result.Severity, target)
 
 	direct := []string{}
 	indirect := []string{}
@@ -163,16 +170,16 @@ func runImpact() {
 		}
 	}
 
-	fmt.Printf("├── 직접 영향 (depth 1): %d개\n", len(direct))
+	fmt.Printf("├── Direct impact (depth 1): %d\n", len(direct))
 	for _, id := range direct {
 		fmt.Printf("│   └── %s\n", id)
 	}
-	fmt.Printf("└── 간접 영향 (depth 2+): %d개\n", len(indirect))
+	fmt.Printf("└── Indirect impact (depth 2+): %d\n", len(indirect))
 	for _, id := range indirect {
 		fmt.Printf("    └── %s\n", id)
 	}
 
-	fmt.Printf("\n=== AI 분석 ===\n%s\n", result.Explanation)
+	fmt.Printf("\n=== AI analysis ===\n%s\n", result.Explanation)
 
 	// Save React Flow JSON
 	renderer := render.NewRenderer()
@@ -204,6 +211,22 @@ func mustKubeClient() kubernetes.Interface {
 		os.Exit(1)
 	}
 	return clientset
+}
+
+// kubeContextName returns the current kubeconfig context name
+// (used as the cluster label in API responses).
+func kubeContextName() string {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			kubeconfig = home + "/.kube/config"
+		}
+	}
+	raw, err := clientcmd.LoadFromFile(kubeconfig)
+	if err != nil {
+		return "unknown"
+	}
+	return raw.CurrentContext
 }
 
 // flagValue returns the CLI flag value, falling back to env var, then defaultVal.

@@ -29,7 +29,7 @@ func ClusterSummaryPrompt(snap *probe.ClusterSnapshot, g *graph.DependencyGraph)
 	}
 
 	system = systemPersona
-	user = fmt.Sprintf(`Analyze this Kubernetes cluster and provide a concise summary in Korean.
+	user = fmt.Sprintf(`Analyze this Kubernetes cluster and provide a concise summary in English.
 Explain: (1) overall architecture, (2) external traffic flow, (3) key service dependencies.
 Cluster data: %s`, dataStr)
 	return
@@ -53,7 +53,7 @@ BFS-detected affected resources: %v
 Respond ONLY with this JSON structure:
 {
   "severity": "critical|high|medium|low",
-  "explanation": "Korean explanation of impact chain and business consequences"
+  "explanation": "English explanation of impact chain and business consequences"
 }
 
 Severity guide:
@@ -63,6 +63,44 @@ Severity guide:
 - low: minimal impact
 
 Context: %s`, target, affected, string(data))
+	return
+}
+
+// InvestigationPrompt builds prompts for structured incident investigation.
+func InvestigationPrompt(req InvestigationRequest, affected []string) (system, user string) {
+	data, _ := json.Marshal(map[string]any{
+		"incidentId":        req.IncidentID,
+		"failedResource":    req.PrimaryTarget,
+		"health":            req.Health,
+		"reason":            req.Reason,
+		"affectedResources": affected,
+		"incidentTimeline":  req.Timeline,
+	})
+
+	system = systemPersona + "\nAlways respond with valid JSON only. No markdown, no explanation outside JSON."
+	user = fmt.Sprintf(`A Kubernetes incident needs a structured investigation report.
+Analyze the incident timeline and the BFS-derived blast radius.
+
+Incident data: %s
+
+Respond ONLY with this JSON structure:
+{
+  "summary": "concise incident summary in English",
+  "observedFacts": ["fact drawn from the timeline"],
+  "possibleCauses": [
+    { "cause": "hypothesis in English", "confidence": "high|medium|low" }
+  ],
+  "supportingEvidence": [
+    { "evidenceId": "<id copied verbatim from incidentTimeline>", "note": "why this evidence supports the analysis" }
+  ],
+  "nextChecks": ["kubectl command or concrete check to run next"]
+}
+
+Rules:
+- Treat causes as hypotheses, not proven facts.
+- Only reference evidenceId values that appear in the incidentTimeline.
+- Prefer 2-4 possible causes ordered by confidence.
+- Respond in English.`, string(data))
 	return
 }
 

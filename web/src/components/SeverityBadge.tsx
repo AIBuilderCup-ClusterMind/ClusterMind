@@ -1,19 +1,12 @@
-import { clsx } from 'clsx'
+import { cn } from '../lib/utils'
 
 type Severity = 'critical' | 'high' | 'medium' | 'low'
 
 const styles: Record<Severity, string> = {
-  critical: 'bg-red-100 text-red-700 border-red-300',
-  high:     'bg-orange-100 text-orange-700 border-orange-300',
-  medium:   'bg-yellow-100 text-yellow-700 border-yellow-300',
-  low:      'bg-green-100 text-green-700 border-green-300',
-}
-
-const labels: Record<Severity, string> = {
-  critical: '🔴 CRITICAL',
-  high:     '🟠 HIGH',
-  medium:   '🟡 MEDIUM',
-  low:      '🟢 LOW',
+  critical: 'bg-critical/10 text-critical border-critical/40',
+  high: 'bg-warning/10 text-warning border-warning/40',
+  medium: 'bg-warning/10 text-warning border-warning/30',
+  low: 'bg-healthy/10 text-healthy border-healthy/30',
 }
 
 interface SeverityBadgeProps {
@@ -24,13 +17,13 @@ interface SeverityBadgeProps {
 export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
   return (
     <span
-      className={clsx(
-        'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border',
+      className={cn(
+        'inline-flex items-center rounded-sm border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
         styles[severity],
         className,
       )}
     >
-      {labels[severity]}
+      {severity}
     </span>
   )
 }

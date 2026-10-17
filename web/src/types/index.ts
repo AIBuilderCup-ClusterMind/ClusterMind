@@ -1,5 +1,101 @@
 // Shared TypeScript types — mirrors Go DTO structs 1:1
 
+// ── Digital twin snapshot (GET /api/v1/twin/snapshot) ───────────────────────
+
+export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
+
+export interface TwinMetric {
+  label: string
+  value: string
+}
+
+export interface TwinNode {
+  id: string
+  name: string
+  kind: string // lowercased K8s kind, e.g. "deployment"
+  namespace: string
+  status: HealthStatus
+  reason?: string
+  metrics: TwinMetric[]
+  labels: Record<string, string>
+  position: { x: number; y: number }
+  replicas?: number
+}
+
+export interface TwinEdge {
+  id: string
+  source: string
+  target: string
+  protocol: string
+}
+
+export type EvidenceSource = 'events' | 'deployment' | 'alert'
+
+export interface TwinEvidence {
+  id: string
+  time: string // RFC3339
+  source: EvidenceSource
+  resourceId: string
+  title: string
+  detail: string
+}
+
+export interface TwinChange {
+  id: string
+  time: string // RFC3339
+  actor: string
+  resourceId: string
+  description: string
+}
+
+export type IncidentSeverity = 'sev1' | 'sev2' | 'sev3'
+
+export interface TwinIncident {
+  id: string
+  title: string
+  severity: IncidentSeverity
+  status: 'open' | 'resolved'
+  startedAt: string
+  primaryResourceId: string
+  timeline: TwinEvidence[]
+}
+
+export interface TwinSnapshot {
+  cluster: string
+  namespace: string
+  capturedAt: string
+  nodes: TwinNode[]
+  edges: TwinEdge[]
+  changes: TwinChange[]
+  incidents: TwinIncident[]
+}
+
+// ── Investigation (POST /api/v1/investigate) ────────────────────────────────
+
+export type InvestigationConfidence = 'high' | 'medium' | 'low'
+
+export interface PossibleCause {
+  cause: string
+  confidence: InvestigationConfidence
+}
+
+export interface SupportingEvidenceRef {
+  evidenceId: string
+  note: string
+}
+
+export interface InvestigationResult {
+  incidentId: string
+  generatedBy: 'gemini' | 'fallback'
+  summary: string
+  observedFacts: string[]
+  possibleCauses: PossibleCause[]
+  supportingEvidence: SupportingEvidenceRef[]
+  nextChecks: string[]
+}
+
+// ── Legacy graph result (GET /api/v1/cluster/graph) ─────────────────────────
+
 export interface ResourceNode {
   id: string
   kind: string

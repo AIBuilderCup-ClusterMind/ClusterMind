@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	aiPkg "github.com/clustermind/clustermind/internal/ai"
+	"github.com/clustermind/clustermind/internal/graph"
 	"github.com/clustermind/clustermind/internal/probe"
+	"github.com/clustermind/clustermind/internal/render"
 )
 
 // handleSnapshot returns a lightweight summary of collected cluster resources.
@@ -177,4 +181,187 @@ func (s *Server) handleNamespaceResources(c *gin.Context) {
 		Namespace: ns,
 		Resources: filtered,
 	})
+}
+
+// handleTwinSnapshot collects the cluster, builds the dependency graph, and
+// returns the digital-twin view model (identity + health + metrics per node).
+func (s *Server) handleTwinSnapshot(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	snap, err := s.collector.Collect(ctx)
+	if err != nil {
+		slog.Error("collect failed", "error", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("collect: %s", err)})
+		return
+	}
+
+	g := s.builder.Build(snap)
+	statuses := probe.ExtractResourceStatuses(snap)
+
+	statusByID := make(map[string]probe.ResourceStatus, len(statuses))
+	for _, rs := range statuses {
+		statusByID[graph.NodeID(rs.Kind, rs.Namespace, rs.Name)] = rs
+	}
+
+	positions := render.GridPositions(g.Nodes)
+
+	nodes := make([]TwinNode, 0, len(g.Nodes))
+	for _, n := range g.Nodes {
+		node := TwinNode{
+			ID:        n.ID,
+			Name:      n.Name,
+			Kind:      strings.ToLower(n.Kind),
+			Namespace: n.Namespace,
+			Status:    "unknown",
+			Metrics:   []TwinMetric{},
+			Labels:    n.Labels,
+			Position:  positions[n.ID],
+		}
+
+		if rs, ok := statusByID[n.ID]; ok {
+			node.Status = healthFromPhase(rs.Phase)
+			node.Reason = rs.Reason
+			node.Metrics = twinMetrics(rs)
+		}
+
+		if v, ok := n.Meta["replicas"]; ok {
+			if f, ok := v.(float64); ok {
+				r32 := int32(f)
+				node.Replicas = &r32
+			}
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	edges := make([]TwinEdge, 0, len(g.Edges))
+	for _, e := range g.Edges {
+		edges = append(edges, TwinEdge{
+			ID:       fmt.Sprintf("%s|%s|%s", e.EdgeType, e.Source, e.Target),
+			Source:   e.Source,
+			Target:   e.Target,
+			Protocol: e.EdgeType,
+		})
+	}
+
+	ns := s.collector.Namespace()
+	if ns == "" {
+		ns = "all"
+	}
+
+	incidents, changes := BuildTwinIncidents(snap, g)
+
+	c.JSON(http.StatusOK, TwinSnapshot{
+		Cluster:    s.clusterName,
+		Namespace:  ns,
+		CapturedAt: time.Now().UTC(),
+		Nodes:      nodes,
+		Edges:      edges,
+		Changes:    changes,
+		Incidents:  incidents,
+	})
+}
+
+// healthFromPhase maps a probe StatusPhase to the digital-twin health status.
+func healthFromPhase(p probe.StatusPhase) string {
+	switch p {
+	case probe.StatusHealthy, probe.StatusCompleted:
+		return "healthy"
+	case probe.StatusWarning, probe.StatusPending:
+		return "degraded"
+	case probe.StatusDegraded:
+		return "unhealthy"
+	default:
+		return "unknown"
+	}
+}
+
+// twinMetrics derives display metrics for a node card from its live status.
+func twinMetrics(rs probe.ResourceStatus) []TwinMetric {
+	metrics := make([]TwinMetric, 0, 3)
+	if rs.Ready != "" && rs.Ready != "—" {
+		metrics = append(metrics, TwinMetric{Label: "Ready", Value: rs.Ready})
+	}
+	if rs.Age != "" && rs.Age != "—" {
+		metrics = append(metrics, TwinMetric{Label: "Age", Value: rs.Age})
+	}
+	return metrics
+}
+
+// handleInvestigate generates a structured investigation report for a
+// derived incident (Gemini-backed with a deterministic fallback).
+func (s *Server) handleInvestigate(c *gin.Context) {
+	var req InvestigateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("invalid request: %s", err)})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
+	defer cancel()
+
+	snap, err := s.collector.Collect(ctx)
+	if err != nil {
+		slog.Error("collect failed", "error", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("collect: %s", err)})
+		return
+	}
+
+	g := s.builder.Build(snap)
+	incidents, _ := BuildTwinIncidents(snap, g)
+
+	var incident *TwinIncident
+	for i := range incidents {
+		if incidents[i].ID == req.IncidentID {
+			incident = &incidents[i]
+			break
+		}
+	}
+	if incident == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("incident not found: %s", req.IncidentID)})
+		return
+	}
+
+	health := "healthy"
+	switch incident.Severity {
+	case "sev1":
+		health = "unhealthy"
+	case "sev2":
+		health = "degraded"
+	}
+
+	// Progress conditions like "Available" on a healthy resource are not
+	// failure causes — only surface the reason when the resource is degraded.
+	reason := ""
+	if health != "healthy" {
+		statuses := probe.ExtractResourceStatuses(snap)
+		for _, rs := range statuses {
+			if graph.NodeID(rs.Kind, rs.Namespace, rs.Name) == incident.PrimaryResourceID {
+				reason = rs.Reason
+				break
+			}
+		}
+	}
+
+	timeline := make([]aiPkg.EvidenceInput, 0, len(incident.Timeline))
+	for _, ev := range incident.Timeline {
+		timeline = append(timeline, aiPkg.EvidenceInput{
+			ID:     ev.ID,
+			Time:   ev.Time,
+			Source: ev.Source,
+			Title:  ev.Title,
+			Detail: ev.Detail,
+		})
+	}
+
+	result := s.analyzer.Investigate(ctx, aiPkg.InvestigationRequest{
+		IncidentID:    incident.ID,
+		PrimaryTarget: incident.PrimaryResourceID,
+		Health:        health,
+		Reason:        reason,
+		Timeline:      timeline,
+	}, g)
+
+	c.JSON(http.StatusOK, result)
 }

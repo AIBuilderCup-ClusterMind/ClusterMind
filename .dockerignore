@@ -1,0 +1,14 @@
+.git
+bin/
+web/node_modules/
+web/dist/
+webdist/dist/*
+!webdist/dist/.gitkeep
+cluster_impact.json
+coverage.out
+coverage.html
+*.log
+.scratch
+.claude
+.env
+.env.*

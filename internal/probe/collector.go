@@ -22,6 +22,11 @@ func NewClusterCollector(clientset kubernetes.Interface, namespace string) *Clus
 	return &ClusterCollector{clientset: clientset, namespace: namespace}
 }
 
+// Namespace returns the namespace filter (empty string = all namespaces).
+func (c *ClusterCollector) Namespace() string {
+	return c.namespace
+}
+
 // Collect fetches all supported resource types and returns a ClusterSnapshot.
 func (c *ClusterCollector) Collect(ctx context.Context) (*ClusterSnapshot, error) {
 	snap := &ClusterSnapshot{}
@@ -112,12 +117,20 @@ func (c *ClusterCollector) Collect(ctx context.Context) (*ClusterSnapshot, error
 	}
 	snap.NetworkPolicies = npList.Items
 
+	// Events (recent, both Warning and Normal — feeds incident timelines)
+	evList, err := c.clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{Limit: 500})
+	if err != nil {
+		return nil, fmt.Errorf("collect Event: %w", err)
+	}
+	snap.Events = evList.Items
+
 	_ = autoscalingv2.SchemeGroupVersion // suppress unused import
 	slog.Info("snapshot complete",
 		"deployments", len(snap.Deployments),
 		"services", len(snap.Services),
 		"pods", len(snap.Pods),
 		"ingresses", len(snap.Ingresses),
+		"events", len(snap.Events),
 	)
 	return snap, nil
 }

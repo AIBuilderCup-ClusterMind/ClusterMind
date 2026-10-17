@@ -3,8 +3,8 @@ package graph
 
 // ResourceNode represents a single K8s resource vertex in the dependency graph.
 type ResourceNode struct {
-	ID        string            `json:"id"`        // "{Kind}/{namespace}/{name}"
-	Kind      string            `json:"kind"`      // "Service", "Deployment", ...
+	ID        string            `json:"id"`   // "{Kind}/{namespace}/{name}"
+	Kind      string            `json:"kind"` // "Service", "Deployment", ...
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
 	Labels    map[string]string `json:"labels"`
@@ -22,7 +22,7 @@ type DependencyEdge struct {
 
 // DependencyGraph is the full graph of a cluster snapshot.
 type DependencyGraph struct {
-	Nodes []ResourceNode  `json:"nodes"`
+	Nodes []ResourceNode   `json:"nodes"`
 	Edges []DependencyEdge `json:"edges"`
 }
 

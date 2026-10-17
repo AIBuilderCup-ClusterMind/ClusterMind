@@ -25,3 +25,7 @@ Thumbs.db
 
 # OpenCode
 .omo/
+
+# Embedded web UI build output (keep the directory, ignore the files)
+webdist/dist/*
+!webdist/dist/.gitkeep

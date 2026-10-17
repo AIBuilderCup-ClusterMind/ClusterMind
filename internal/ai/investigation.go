@@ -1,0 +1,239 @@
+package ai
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"github.com/clustermind/clustermind/internal/graph"
+)
+
+// EvidenceInput is one timeline entry supplied to an investigation.
+type EvidenceInput struct {
+	ID     string `json:"id"`
+	Time   string `json:"time"`
+	Source string `json:"source"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+// InvestigationRequest carries the incident context for an investigation.
+type InvestigationRequest struct {
+	IncidentID    string
+	PrimaryTarget string
+	Health        string // "unhealthy" | "degraded"
+	Reason        string
+	Timeline      []EvidenceInput
+}
+
+// PossibleCause is one hypothesised cause with a confidence level.
+type PossibleCause struct {
+	Cause      string `json:"cause"`
+	Confidence string `json:"confidence"` // "high" | "medium" | "low"
+}
+
+// SupportingEvidenceRef links a cause to a timeline evidence ID.
+type SupportingEvidenceRef struct {
+	EvidenceID string `json:"evidenceId"`
+	Note       string `json:"note"`
+}
+
+// InvestigationResult is a structured incident investigation report.
+type InvestigationResult struct {
+	IncidentID         string                  `json:"incidentId"`
+	GeneratedBy        string                  `json:"generatedBy"` // "gemini" | "fallback"
+	Summary            string                  `json:"summary"`
+	ObservedFacts      []string                `json:"observedFacts"`
+	PossibleCauses     []PossibleCause         `json:"possibleCauses"`
+	SupportingEvidence []SupportingEvidenceRef `json:"supportingEvidence"`
+	NextChecks         []string                `json:"nextChecks"`
+}
+
+// Investigate generates a structured investigation for an incident.
+// It combines BFS blast-radius traversal with the incident timeline; when the
+// LLM is unavailable or returns an invalid report, a deterministic fallback
+// report is returned so the investigation experience stays usable.
+func (a *Analyzer) Investigate(
+	ctx context.Context,
+	req InvestigationRequest,
+	g *graph.DependencyGraph,
+) *InvestigationResult {
+	_, _, affected := traverse(g, req.PrimaryTarget)
+	slog.Info("investigate", "incident", req.IncidentID, "affected", len(affected))
+
+	if a.engine == nil {
+		return fallbackInvestigation(req, affected)
+	}
+
+	system, user := InvestigationPrompt(req, affected)
+	raw, err := a.engine.ChatComplete(ctx, system, user)
+	if err != nil {
+		slog.Warn("llm investigation failed, using fallback", "error", err)
+		return fallbackInvestigation(req, affected)
+	}
+
+	var parsed struct {
+		Summary            string                  `json:"summary"`
+		ObservedFacts      []string                `json:"observedFacts"`
+		PossibleCauses     []PossibleCause         `json:"possibleCauses"`
+		SupportingEvidence []SupportingEvidenceRef `json:"supportingEvidence"`
+		NextChecks         []string                `json:"nextChecks"`
+	}
+	if err := json.Unmarshal([]byte(stripCodeFences(raw)), &parsed); err != nil {
+		slog.Warn("investigation JSON parse failed, using fallback", "error", err)
+		return fallbackInvestigation(req, affected)
+	}
+	if strings.TrimSpace(parsed.Summary) == "" {
+		slog.Warn("investigation summary empty, using fallback")
+		return fallbackInvestigation(req, affected)
+	}
+
+	return &InvestigationResult{
+		IncidentID:         req.IncidentID,
+		GeneratedBy:        "gemini",
+		Summary:            parsed.Summary,
+		ObservedFacts:      nonEmpty(parsed.ObservedFacts),
+		PossibleCauses:     clampCauses(parsed.PossibleCauses),
+		SupportingEvidence: validateEvidence(parsed.SupportingEvidence, req.Timeline),
+		NextChecks:         nonEmpty(parsed.NextChecks),
+	}
+}
+
+// stripCodeFences removes markdown code fences around a JSON payload.
+func stripCodeFences(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	return strings.TrimSpace(raw)
+}
+
+// clampCauses keeps only well-formed causes with a valid confidence level.
+func clampCauses(causes []PossibleCause) []PossibleCause {
+	out := make([]PossibleCause, 0, len(causes))
+	for _, c := range causes {
+		if strings.TrimSpace(c.Cause) == "" {
+			continue
+		}
+		switch c.Confidence {
+		case "high", "medium", "low":
+		default:
+			c.Confidence = "low"
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// validateEvidence drops references to evidence IDs that do not exist
+// in the supplied timeline.
+func validateEvidence(refs []SupportingEvidenceRef, timeline []EvidenceInput) []SupportingEvidenceRef {
+	valid := map[string]bool{}
+	for _, ev := range timeline {
+		valid[ev.ID] = true
+	}
+	out := make([]SupportingEvidenceRef, 0, len(refs))
+	for _, r := range refs {
+		if valid[r.EvidenceID] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func nonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// fallbackInvestigation builds a deterministic report from the incident data.
+func fallbackInvestigation(req InvestigationRequest, affected []string) *InvestigationResult {
+	facts := make([]string, 0, len(req.Timeline))
+	for _, ev := range req.Timeline {
+		if ev.Detail != "" {
+			facts = append(facts, fmt.Sprintf("%s %s — %s", ev.Time, ev.Title, ev.Detail))
+		} else {
+			facts = append(facts, fmt.Sprintf("%s %s", ev.Time, ev.Title))
+		}
+	}
+
+	causes := detectCauses(req)
+
+	summary := fmt.Sprintf(
+		"%s is %s and may impact %d dependent resource(s). Evidence shows %d timeline event(s); verify the hypotheses below before drawing conclusions.",
+		req.PrimaryTarget, req.Health, len(affected), len(req.Timeline),
+	)
+
+	nextChecks := []string{
+		fmt.Sprintf("kubectl describe %s", resourceKubectlArgs(req.PrimaryTarget)),
+		"kubectl get events --sort-by=.metadata.creationTimestamp",
+		fmt.Sprintf("kubectl get pods -l app=%s -o wide", lastPathSegment(req.PrimaryTarget)),
+		fmt.Sprintf("kubectl logs --previous %s", lastPathSegment(req.PrimaryTarget)),
+	}
+
+	return &InvestigationResult{
+		IncidentID:         req.IncidentID,
+		GeneratedBy:        "fallback",
+		Summary:            summary,
+		ObservedFacts:      facts,
+		PossibleCauses:     causes,
+		SupportingEvidence: []SupportingEvidenceRef{},
+		NextChecks:         nextChecks,
+	}
+}
+
+// detectCauses scans the timeline for well-known failure signatures.
+func detectCauses(req InvestigationRequest) []PossibleCause {
+	causes := []PossibleCause{}
+	seen := map[string]bool{}
+	add := func(cause, confidence string) {
+		if !seen[cause] {
+			seen[cause] = true
+			causes = append(causes, PossibleCause{Cause: cause, Confidence: confidence})
+		}
+	}
+
+	for _, ev := range req.Timeline {
+		text := ev.Title + " " + ev.Detail
+		switch {
+		case strings.Contains(text, "CrashLoopBackOff"):
+			add("Container is crash-looping — inspect previous logs and readiness configuration", "high")
+		case strings.Contains(text, "OOMKilled"):
+			add("Container was OOM-killed — memory limit may be too low", "high")
+		case strings.Contains(text, "FailedScheduling"):
+			add("Pod cannot be scheduled — insufficient node resources or affinity constraints", "medium")
+		case strings.Contains(text, "Unhealthy") || strings.Contains(text, "Readiness"):
+			add("Readiness/liveness probe is failing — endpoint may not be serving traffic", "medium")
+		case strings.Contains(text, "BackOff"):
+			add("Image pull or restart back-off — verify image tag and registry access", "medium")
+		}
+	}
+	if len(causes) == 0 {
+		add("Resource degraded — cause requires manual inspection of logs and dependencies", "low")
+	}
+	if req.Reason != "" {
+		add("Health check reported: "+req.Reason, "medium")
+	}
+	return causes
+}
+
+// resourceKubectlArgs renders "kind/name -n namespace" for kubectl commands.
+func resourceKubectlArgs(id string) string {
+	parts := strings.SplitN(id, "/", 3)
+	if len(parts) != 3 {
+		return id
+	}
+	return fmt.Sprintf("%s/%s -n %s", strings.ToLower(parts[0]), parts[2], parts[1])
+}
+
+func lastPathSegment(id string) string {
+	parts := strings.Split(id, "/")
+	return parts[len(parts)-1]
+}

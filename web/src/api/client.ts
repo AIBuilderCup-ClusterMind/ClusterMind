@@ -1,9 +1,11 @@
 import type {
   GraphResult,
   ImpactResponse,
+  InvestigationResult,
   NamespaceListResponse,
   NamespaceResourcesResponse,
   SnapshotSummary,
+  TwinSnapshot,
 } from '../types'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
@@ -18,6 +20,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`)
   }
   return data
+}
+
+/** Fetch the digital-twin snapshot (identity + health + metrics per node). */
+export function fetchTwinSnapshot(): Promise<TwinSnapshot> {
+  return request<TwinSnapshot>('/api/v1/twin/snapshot')
 }
 
 /** Fetch React Flow-compatible cluster graph (nodes + edges). */
@@ -35,6 +42,14 @@ export function analyzeImpact(target: string): Promise<ImpactResponse> {
   return request<ImpactResponse>('/api/v1/impact', {
     method: 'POST',
     body: JSON.stringify({ target }),
+  })
+}
+
+/** Generate a structured investigation report for a derived incident. */
+export function investigate(incidentId: string): Promise<InvestigationResult> {
+  return request<InvestigationResult>('/api/v1/investigate', {
+    method: 'POST',
+    body: JSON.stringify({ incidentId }),
   })
 }
 

@@ -1,7 +1,10 @@
 package graph
 
 import (
+	"net/url"
 	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/clustermind/clustermind/internal/probe"
 )
@@ -159,6 +162,10 @@ func (b *GraphBuilder) Build(snap *probe.ClusterSnapshot) *DependencyGraph {
 	// e.g. "api-svc" and "api-deployment" share prefix "api"
 	b.inferByPrefix(snap, g, addEdge)
 
+	// Rule 5: Env-var URL reference inference (confidence 0.7)
+	// e.g. PAYMENT_SERVICE_URL="http://payment-svc:8080" → Deployment → Service
+	b.inferFromEnv(snap, g, addEdge)
+
 	return g
 }
 
@@ -222,4 +229,64 @@ func commonPrefix(a, b string) string {
 	p := a[:i]
 	p = strings.TrimRight(p, "-_")
 	return p
+}
+
+// inferFromEnv adds edges from workloads to Services referenced by
+// URL-shaped container env values (e.g. "http://payment-svc:8080" or
+// "postgresql://postgres-svc:5432").
+func (b *GraphBuilder) inferFromEnv(snap *probe.ClusterSnapshot, g *DependencyGraph, addEdge func(src, tgt, edgeType string, confidence float64)) {
+	services := map[string]bool{} // "namespace/name" → exists
+	for _, svc := range snap.Services {
+		services[svc.Namespace+"/"+svc.Name] = true
+	}
+
+	type key struct{ src, tgt string }
+	seen := map[key]bool{}
+
+	addTemplate := func(kind, ns, name string, tpl corev1.PodTemplateSpec) {
+		for _, c := range tpl.Spec.Containers {
+			for _, env := range c.Env {
+				host, ok := urlHostname(env.Value)
+				if !ok {
+					continue
+				}
+				if !services[ns+"/"+host] {
+					continue
+				}
+				src := NodeID(kind, ns, name)
+				tgt := NodeID("Service", ns, host)
+				if k := (key{src, tgt}); !seen[k] {
+					seen[k] = true
+					addEdge(src, tgt, "env_reference", 0.7)
+				}
+			}
+		}
+	}
+
+	for _, d := range snap.Deployments {
+		addTemplate("Deployment", d.Namespace, d.Name, d.Spec.Template)
+	}
+	for _, ss := range snap.StatefulSets {
+		addTemplate("StatefulSet", ss.Namespace, ss.Name, ss.Spec.Template)
+	}
+	for _, ds := range snap.DaemonSets {
+		addTemplate("DaemonSet", ds.Namespace, ds.Name, ds.Spec.Template)
+	}
+}
+
+// urlHostname extracts the hostname from a URL-shaped string.
+func urlHostname(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if !strings.Contains(v, "://") {
+		return "", false
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", false
+	}
+	return host, true
 }

@@ -21,4 +21,5 @@ type ClusterSnapshot struct {
 	Secrets         []corev1.Secret // Data is always nil — values never stored
 	HPAs            []autoscalingv2.HorizontalPodAutoscaler
 	NetworkPolicies []networkingv1.NetworkPolicy
+	Events          []corev1.Event
 }

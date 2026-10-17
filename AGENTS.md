@@ -74,13 +74,15 @@ clustermind/
 │   │   └── models.go               # ResourceNode / DependencyEdge 타입
 │   ├── ai/
 │   │   ├── engine.go               # LLM 호출 추상화 (OpenAI 호환)
-│   │   ├── prompts.go              # 구조 설명 / 장애 추론 프롬프트 템플릿
-│   │   └── impact.go               # 장애 영향 범위 분석 로직
+│   │   ├── prompts.go              # 구조 설명 / 장애 추론 / 조사 프롬프트 템플릿
+│   │   ├── impact.go               # 장애 영향 범위 분석 로직 (BFS traverse 공용)
+│   │   └── investigation.go        # 인시던트 조사 리포트 (Gemini + fallback)
 │   ├── render/
 │   │   └── graph.go               # React Flow용 nodes/edges JSON 변환
 │   └── api/
 │       ├── server.go               # Gin HTTP 서버
 │       ├── handlers.go             # REST 엔드포인트 핸들러
+│       ├── incidents.go            # K8s Events → changes/incidents 파생
 │       └── dto.go                  # 요청/응답 DTO 구조체
 ├── web/                            # TypeScript + React 프론트엔드
 │   ├── package.json
@@ -88,15 +90,29 @@ clustermind/
 │   ├── vite.config.ts
 │   └── src/
 │       ├── main.tsx
-│       ├── App.tsx
+│       ├── App.tsx                 # 4뷰 라우팅 (Overview/Topology/Incidents/Investigation)
+│       ├── index.css               # Jexa07 oklch 토큰 + Tailwind v4 테마
 │       ├── components/
-│       │   ├── ClusterGraph.tsx    # React Flow 그래프 캔버스 컴포넌트
+│       │   ├── cm/                 # 디자인 시스템 (AppShell, primitives, kindIconFor)
+│       │   ├── TopologyGraph.tsx   # React Flow 캔버스 (impact 오버레이 포함)
+│       │   ├── NamespacePanel.tsx  # 네임스페이스 사이드바
+│       │   ├── NodeDetailPanel.tsx # 리소스 상세 패널
 │       │   ├── ImpactPanel.tsx     # 장애 영향 범위 패널
-│       │   ├── ResourceTree.tsx    # 리소스 트리 사이드바
+│       │   ├── IncidentTimeline.tsx    # 인시던트 근거 타임라인
+│       │   ├── InvestigationPanel.tsx  # 조사 리포트 패널 (facts/causes/nextChecks)
 │       │   └── SeverityBadge.tsx   # critical/high/medium/low 뱃지
+│       ├── routes/
+│       │   ├── Overview.tsx
+│       │   ├── Topology.tsx
+│       │   ├── Incidents.tsx       # 리스트 + 타임라인 + 자동 impact + 조사 패널
+│       │   └── Investigation.tsx   # 단일 인시던트 조사 리포트
 │       ├── hooks/
-│       │   ├── useCluster.ts       # 클러스터 데이터 fetching
-│       │   └── useImpact.ts        # 장애 시뮬레이션 상태
+│       │   ├── useTwin.ts          # twin 스냅샷 fetching (30s 폴링)
+│       │   ├── useImpact.ts        # 장애 시뮬레이션 상태 (Zustand)
+│       │   ├── useSelection.ts     # 노드 선택 상태
+│       │   ├── useIncident.ts      # 선택된 인시던트 ID
+│       │   ├── useInvestigate.ts   # 조사 리포트 mutation
+│       │   └── useNamespaces.ts
 │       ├── api/
 │       │   └── client.ts           # REST API 클라이언트 (fetch 래퍼)
 │       └── types/
@@ -151,6 +167,7 @@ snapshot, err := collector.Collect(ctx)
 | **HPA → Deployment** | `spec.scaleTargetRef` 참조 |
 | **NetworkPolicy 범위** | `podSelector` + `namespaceSelector`로 허용/차단 edge |
 | **ConfigMap/Secret 마운트** | `volumes[]` 또는 `envFrom[]` 참조 |
+| **Env URL 참조** | 컨테이너 env의 URL이 Service 이름을 가리키면 연결 (예: `http://payment-svc:8080`) — confidence: 0.7 |
 | **이름 기반 추론** | 동일 prefix를 공유하는 리소스 간 약한 연결 (confidence: low) |
 
 **그래프 모델:**
@@ -210,7 +227,7 @@ impact, err := analyzer.AnalyzeFailure(ctx, AnalyzeRequest{
 
 ---
 
-### 4. React Flow 그래프 렌더링 (`internal/render/graph.go` + `web/src/components/ClusterGraph.tsx`)
+### 4. React Flow 그래프 렌더링 (`internal/render/graph.go` + `web/src/components/TopologyGraph.tsx`)
 
 **백엔드 — nodes/edges JSON 변환 (`internal/render/graph.go`):**
 
@@ -220,7 +237,7 @@ impact, err := analyzer.AnalyzeFailure(ctx, AnalyzeRequest{
 type FlowNode struct {
     ID       string         `json:"id"`
     Type     string         `json:"type"`    // "service" | "deployment" | "ingress" | ...
-    Position Position       `json:"position"` // ELK가 자동 계산
+    Position Position       `json:"position"` // render.GridPositions가 백엔드에서 계산 (layered grid)
     Data     FlowNodeData   `json:"data"`
 }
 
@@ -242,62 +259,64 @@ type FlowEdge struct {
 }
 ```
 
-**프론트엔드 — React Flow 커스텀 노드 (`web/src/components/ClusterGraph.tsx`):**
+**프론트엔드 — React Flow 캔버스 (`web/src/components/TopologyGraph.tsx`):**
 
 ```tsx
-// K8s 리소스 종류별 커스텀 노드 컴포넌트
-const ServiceNode = ({ data }: NodeProps<FlowNodeData>) => (
-  <div className={cn(
-    "px-4 py-2 rounded-lg border-2 shadow-md min-w-[140px]",
-    data.impactLevel === "critical" && "border-red-500 bg-red-50 animate-pulse",
-    data.impactLevel === "direct"   && "border-orange-400 bg-orange-50",
-    data.impactLevel === "indirect" && "border-yellow-400 bg-yellow-50",
-    data.impactLevel === "none"     && "border-slate-200 bg-white",
-  )}>
-    <div className="flex items-center gap-2">
-      <NetworkIcon className="w-4 h-4 text-blue-600" />
-      <span className="font-mono text-sm font-semibold">{data.label}</span>
-    </div>
-    <span className="text-xs text-slate-500">{data.namespace}</span>
-    <Handle type="target" position={Position.Top} />
-    <Handle type="source" position={Position.Bottom} />
-  </div>
-)
-
-// React Flow 캔버스 + ELK 자동 레이아웃
-export const ClusterGraph = () => {
-  const { nodes, edges } = useCluster()   // React Query로 /api/v1/cluster/graph fetch
-  const { impactTarget } = useImpact()    // 장애 시뮬레이션 선택 상태
-
+// 단일 커스텀 노드 컴포넌트 — TwinNode 기반, impact 오버레이 포함
+function ResourceNodeView({ data }: NodeProps<Node<ResourceNodeData>>) {
+  const { resource: r, impactLevel } = data   // impactLevel: critical|direct|indirect|none
+  const Icon = kindIconFor(r.kind)            // lucide-react K8s 아이콘
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={{ service: ServiceNode, deployment: DeploymentNode, ingress: IngressNode }}
-      fitView
-    >
-      <Background />
-      <Controls />
-      <MiniMap />
-    </ReactFlow>
+    <div className={cn('w-[196px] rounded-md border px-2.5 py-2 transition-all', impactBorder[impactLevel])}>
+      <Handle type="target" position={Position.Top} />
+      <span className={cn('size-1.5 rounded-full', statusDot[r.status])} />
+      <span className="font-mono text-xs">{r.name}</span>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
   )
+}
+
+// 노드/엣지 데이터는 useTwin() (30s 폴링) + useImpact()에서 파생
+export function TopologyGraph() {
+  const { data: twin } = useTwin()     // GET /api/v1/twin/snapshot
+  const { result: impactResult } = useImpact()
+  // twin.nodes/edges → ReactFlow nodes (position은 백엔드 grid 값 사용)
+  return <ReactFlow nodes={nodes} edges={edges} nodeTypes={{ resource: ResourceNodeView }} fitView />
 }
 ```
 
-#### 장애 영향 범위 색상 규칙
-- **장애 원점**: 빨간색 테두리 + `animate-pulse` (`border-red-500 bg-red-50`)
-- **직접 영향 (depth 1)**: 주황색 (`border-orange-400 bg-orange-50`)
-- **간접 영향 (depth 2+)**: 노란색 (`border-yellow-400 bg-yellow-50`)
-- **미영향**: 기본 흰색 (`border-slate-200 bg-white`)
-- **전파 엣지**: `animated: true` → 점선 흐름 애니메이션
+#### 장애 영향 범위 색상 규칙 (`--color-*` oklch 토큰 기반)
+- **장애 원점 (critical)**: `border-critical bg-critical/10 animate-pulse`
+- **직접 영향 (depth 1, direct)**: `border-warning bg-warning/10`
+- **간접 영향 (depth 2+, indirect)**: `border-dashed border-warning/70 bg-warning/5`
+- **미영향 (none)**: `border-border-strong bg-surface-2`
+- **health 상태 점**: `healthy`→`bg-healthy`, `degraded`→`bg-warning`, `unhealthy`→`bg-critical`
 
 **출력 형식:**
 ```go
 result := renderer.RenderGraph(graph, impactResult)
-// result.Nodes  []FlowNode  // React Flow nodes 배열
+// result.Nodes  []FlowNode  // React Flow nodes 배열 (position: GridPositions)
 // result.Edges  []FlowEdge  // React Flow edges 배열
-// result.Layout string      // "elk-layered" | "elk-force"
+// twinSnapshot: TwinNode{status, metrics, labels, position, replicas} + TwinEdge{protocol}
 ```
+
+---
+
+### 5. 인시던트 파생 + 조사 리포트 (`internal/api/incidents.go`, `internal/ai/investigation.go`)
+
+**인시던트 파생 (Collect → BuildTwinIncidents):**
+1. 스냅샷의 Warning 이벤트를 `resolveEventResource`로 리소스에 매칭 (ReplicaSet·Pod 이름의 pod-template-hash 접미스를 제거해 Deployment까지 2단계 매칭)
+2. health가 `unhealthy`/`degraded`인 리소스는 합성 alert 근거 1건 보장 (이벤트 TTL 1h로 타임라인이 비는 경우 대비)
+3. severity: unhealthy→`sev1`, degraded→`sev2`, **healthy지만 Warning 이벤트 보유→`sev3`** (최신 Warning이 10분 이내일 때만 — 복구 후 잔류 방지), 같은 리소스의 근거는 최신순 병합
+4. `ScalingReplicaSet` 같은 Normal 이벤트는 `changes`(최신순 20건)로 분리 — 인시던트가 아님
+
+**조사 리포트 (`Analyzer.Investigate`):**
+1. `traverse(g, target)`으로 blast-radius 재사용 + incident timeline 전달
+2. Gemini에 구조화 JSON 요청 (`InvestigationPrompt`): summary / observedFacts / possibleCauses(confidence) / supportingEvidence(evidenceId 검증) / nextChecks
+3. LLM 미사용·파싱 실패·요약 공백 시 결정적 fallback: 타임라인 사실 나열 + 실패 시그니처 추론(CrashLoopBackOff/OOMKilled/…) + kubectl 명령 nextChecks
+4. `generatedBy`: "gemini" | "fallback" — 프론트 배지로 노출
+
+**프론트:** Incidents 뷰(리스트+타임라인+자동 impact 오버레이+InvestigationPanel) → `useIncident` 선택 공유 → Investigation 뷰(선택 시 자동 실행)
 
 ---
 
@@ -306,11 +325,16 @@ result := renderer.RenderGraph(graph, impactResult)
 ### REST API (Go/Gin)
 
 ```
-GET  /api/v1/cluster/snapshot          # 전체 리소스 스냅샷 반환
-GET  /api/v1/cluster/graph             # 의존성 그래프 (nodes + edges) 반환
+GET  /api/v1/cluster/snapshot          # 리소스 카운트 요약
 GET  /api/v1/cluster/graph             # React Flow nodes+edges JSON 반환
+GET  /api/v1/twin/snapshot             # 디지털 트윈 스냅샷 (노드 status/metrics/labels + edges + changes + incidents)
+GET  /api/v1/namespaces                # 네임스페이스별 리소스 카운트/상태 집계
+GET  /api/v1/namespaces/:ns/resources  # 특정 네임스페이스 리소스 + 정규화 health 상태
 POST /api/v1/impact                    # 장애 영향 분석 요청
      body: { "target": "Service/production/payment-svc" }
+POST /api/v1/investigate               # 인시던트 조사 리포트 (Gemini + 결정적 fallback)
+     body: { "incidentId": "inc-deployment-demo-web" }
+     → InvestigationResult { summary, observedFacts, possibleCauses, supportingEvidence, nextChecks }
 GET  /api/v1/watch                     # SSE 스트림 — 클러스터 변경 이벤트
 ```
 
@@ -480,10 +504,11 @@ bin/clustermind watch --interval 30 --namespace demo
 
 **프론트엔드 (TypeScript):**
 - **언어**: TypeScript 5.x (strict mode 필수)
-- **프레임워크**: React 18 + Vite
-- **스타일**: Tailwind CSS
+- **프레임워크**: React 18 + Vite + React Router (Overview/Topology 4뷰 셸)
+- **스타일**: Tailwind CSS v4 (`@tailwindcss/vite`, oklch 다크 토큰 — `src/index.css`의 `@theme inline` 정의)
+- **디자인 시스템**: `components/cm/` (Panel, Button, StatusBadge, StateMessage, PageHeader + kindIconFor)
 - **상태 관리**: React Query (서버 상태) + Zustand (클라이언트 상태)
-- **그래프 시각화**: `@xyflow/react` (React Flow v12) + `@xyflow/elk` (ELK 자동 레이아웃)
+- **그래프 시각화**: `@xyflow/react` (React Flow v12) — 노드 위치는 백엔드 grid 배치
 - **아이콘**: `lucide-react` (K8s 리소스별 아이콘)
 - **테스트**: Vitest + Testing Library
 
@@ -507,6 +532,9 @@ bin/clustermind watch --interval 30 --namespace demo
 - 최대 탐색 깊이: 5 hop
 - Confidence < 0.3 인 edge는 기본적으로 탐색 제외 (옵션으로 포함 가능)
 - 순환 의존성 감지 시 경고 로그 출력 후 탐색 중단
+- **장애 전파 방향 (`traverse`)**:
+  - `env_reference` / `ingress_backend` / `hpa_target`: **역방향** (callee 장애 → caller 영향, 예: payment-svc → api-deployment)
+  - `selector_match` / `name_prefix`: **양방향** (Service↔Workload는 한 단위)
 
 ---
 
@@ -514,14 +542,17 @@ bin/clustermind watch --interval 30 --namespace demo
 
 | 단계 | 기능 | 담당 | 상태 |
 |------|------|------|------|
-| P0 | K8s 리소스 수집 (`probe/collector.go`) | Go | 미구현 |
-| P0 | Label Selector 기반 edge 추론 (`graph/builder.go`) | Go | 미구현 |
-| P0 | React Flow nodes/edges JSON 변환 (`render/graph.go`) | Go | 미구현 |
-| P0 | REST API 서버 (`api/server.go`) | Go | 미구현 |
-| P1 | LLM 기반 장애 영향 분석 (`ai/impact.go`) | Go | 미구현 |
-| P1 | CLI (`cmd/clustermind/main.go`) | Go | 미구현 |
-| P1 | Web UI 기본 구조 (ClusterGraph, ImpactPanel) | TypeScript | 미구현 |
-| P1 | 시연용 mock 클러스터 + demo 스크립트 | YAML/sh | 미구현 |
+| P0 | K8s 리소스 수집 (`probe/collector.go`) | Go | 완료 |
+| P0 | Label Selector 기반 edge 추론 (`graph/builder.go`) | Go | 완료 |
+| P0 | React Flow nodes/edges JSON 변환 (`render/graph.go`) | Go | 완료 |
+| P0 | REST API 서버 (`api/server.go`) | Go | 완료 |
+| P1 | LLM 기반 장애 영향 분석 (`ai/impact.go`) | Go | 완료 |
+| P1 | CLI (`cmd/clustermind/main.go`) | Go | 완료 |
+| P1 | Web UI 기본 구조 (Overview/Topology + ImpactPanel) | TypeScript | 완료 |
+| P1 | 인시던트 파생 (K8s Events → incidents/changes, `api/incidents.go`) | Go | 완료 |
+| P1 | 조사 리포트 (`POST /api/v1/investigate`, `ai/investigation.go`) | Go | 완료 |
+| P1 | Incidents/Investigation 뷰 (타임라인 + 리포트) | TypeScript | 완료 |
+| P1 | 시연용 mock 클러스터 + demo 스크립트 | YAML/sh | 완료 |
 | P2 | SSE 실시간 감시 스트림 | Go + TypeScript | 미구현 |
 | P2 | NetworkPolicy edge 분석 | Go | 미구현 |
 | P2 | 대화형 질문 모드 (Web UI 채팅 패널) | TypeScript | 미구현 |
@@ -548,17 +579,17 @@ require (
   "dependencies": {
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
+    "react-router-dom": "^7.1.0",
     "@xyflow/react": "^12.0.0",
-    "@xyflow/elk": "^0.0.8",
     "lucide-react": "^0.400.0",
     "@tanstack/react-query": "^5.0.0",
-    "zustand": "^4.5.0",
-    "tailwindcss": "^3.4.0"
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5.4.0",
-    "vite": "^5.0.0",
-    "vitest": "^1.6.0"
+    "vite": "^5.0.0"
   }
 }
 ```
@@ -580,3 +611,23 @@ CLUSTERMIND_NAMESPACE=           # 비어 있으면 전체 네임스페이스
 # 프론트엔드 (Vite)
 VITE_API_BASE_URL=http://localhost:8080   # 백엔드 API 주소
 ```
+
+---
+
+## 배포 (Google Cloud Run)
+
+**아키텍처 — 단일 컨테이너**: `Dockerfile`이 워드프론트(`web/dist`)를 바이너리에 embed(`webdist/` 패키지)해 Go 서버가 REST API + SPA를 동시 서빙한다. 서브라우더 경로(`/incidents` 등)는 index.html로 fallback, `/api/*` 미일치는 404 JSON.
+
+**`cloudrundeploy.sh` (원커맨드 배포):**
+```bash
+PROJECT_ID=my-project GEMINI_API_KEY=AIza... ./cloudrundeploy.sh
+```
+1. API 활성화 (run/cloudbuild/artifactregistry/secretmanager)
+2. Artifact Registry 저장소 생성
+3. 타깃 클러스터에 read-only ServiceAccount(`view` ClusterRole) + 장기 토큰 Secret 생성 → 컨테이너 호환 kubeconfig 조립 (gcloud exec 인증 의존 없음)
+4. kubeconfig → Secret Manager, (선택) GEMINI_API_KEY → Secret Manager
+5. `gcloud run deploy --source .` (Cloud Build로 Docker 빌드) + `--set-secrets`로 kubeconfig 볼륨 마운트
+
+**환경변수 (env):** `REGION`(기본 asia-northeast3), `SERVICE`(clustermind), `NAMESPACE`(수집 제한), `KUBE_CONTEXT`, `RUNTIME_SA`, `USE_RAW_KUBECONFIG=1`, `ALLOW_UNAUTH=0`
+
+**제약:** Cloud Run에서 타깃 클러스터 API 서버에 도달 가능해야 함 (GKE public endpoint OK, private IP는 Serverless VPC Access 필요, localhost 불가 — 스크립트가 사전 검사). 서버는 `PORT` env도 인식한다.

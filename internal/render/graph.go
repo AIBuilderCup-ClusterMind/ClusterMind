@@ -68,15 +68,10 @@ func kindToType(kind string) string {
 	}
 }
 
-// RenderGraph converts a DependencyGraph to a React Flow GraphResult.
-// impactMap maps nodeID → "critical"|"direct"|"indirect"|"none".
-// Pass nil or empty impactMap to render all nodes as "none".
-func (r *Renderer) RenderGraph(g *graph.DependencyGraph, impactMap map[string]string) *GraphResult {
-	if impactMap == nil {
-		impactMap = map[string]string{}
-	}
-
-	// Group nodes by Kind for hierarchical Y-positioning.
+// GridPositions computes a deterministic grid layout for graph nodes.
+// Nodes are grouped by Kind so upstream kinds (Ingress) sit on higher rows,
+// and spread across columns within each row.
+func GridPositions(nodes []graph.ResourceNode) map[string]Position {
 	kindOrder := map[string]int{
 		"Ingress":     0,
 		"Service":     1,
@@ -89,15 +84,34 @@ func (r *Renderer) RenderGraph(g *graph.DependencyGraph, impactMap map[string]st
 	}
 	kindCols := map[int]int{} // row → current column counter
 
-	nodes := make([]FlowNode, 0, len(g.Nodes))
-	for _, n := range g.Nodes {
+	out := make(map[string]Position, len(nodes))
+	for _, n := range nodes {
 		row, ok := kindOrder[n.Kind]
 		if !ok {
 			row = kindOrder["default"]
 		}
 		col := kindCols[row]
 		kindCols[row]++
+		out[n.ID] = Position{
+			X: float64(col) * 220,
+			Y: float64(row) * 140,
+		}
+	}
+	return out
+}
 
+// RenderGraph converts a DependencyGraph to a React Flow GraphResult.
+// impactMap maps nodeID → "critical"|"direct"|"indirect"|"none".
+// Pass nil or empty impactMap to render all nodes as "none".
+func (r *Renderer) RenderGraph(g *graph.DependencyGraph, impactMap map[string]string) *GraphResult {
+	if impactMap == nil {
+		impactMap = map[string]string{}
+	}
+
+	positions := GridPositions(g.Nodes)
+
+	nodes := make([]FlowNode, 0, len(g.Nodes))
+	for _, n := range g.Nodes {
 		impactLevel := impactMap[n.ID]
 		if impactLevel == "" {
 			impactLevel = "none"
@@ -112,12 +126,9 @@ func (r *Renderer) RenderGraph(g *graph.DependencyGraph, impactMap map[string]st
 		}
 
 		nodes = append(nodes, FlowNode{
-			ID:   n.ID,
-			Type: kindToType(n.Kind),
-			Position: Position{
-				X: float64(col) * 220,
-				Y: float64(row) * 140,
-			},
+			ID:       n.ID,
+			Type:     kindToType(n.Kind),
+			Position: positions[n.ID],
 			Data: FlowNodeData{
 				Label:       n.Name,
 				Kind:        n.Kind,

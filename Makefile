@@ -7,7 +7,7 @@ help:
 	@echo "  build           Build ClusterMind backend binary"
 	@echo "  run-backend     Build and run backend API server"
 	@echo "  run-frontend    Start React frontend dev server"
-	@echo "  demo            Setup kind cluster with demo resources"
+	@echo "  demo            Apply demo resources (kind preferred, current context fallback)"
 	@echo "  test            Run Go tests"
 	@echo "  clean           Remove build artifacts"
 	@echo "  tidy            Run go mod tidy"

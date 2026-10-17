@@ -22,12 +22,12 @@ const (
 
 // ImpactResult is the output of a failure impact analysis.
 type ImpactResult struct {
-	Target            string              `json:"target"`
-	AffectedResources []string            `json:"affectedResources"` // node IDs
-	PropagationPaths  [][]string          `json:"propagationPaths"`
-	Severity          string              `json:"severity"` // critical|high|medium|low
-	Explanation       string              `json:"explanation"`
-	ImpactMap         map[string]string   `json:"impactMap"` // nodeID → critical|direct|indirect|none
+	Target            string            `json:"target"`
+	AffectedResources []string          `json:"affectedResources"` // node IDs
+	PropagationPaths  [][]string        `json:"propagationPaths"`
+	Severity          string            `json:"severity"` // critical|high|medium|low
+	Explanation       string            `json:"explanation"`
+	ImpactMap         map[string]string `json:"impactMap"` // nodeID → critical|direct|indirect|none
 }
 
 // Analyzer performs failure impact analysis using graph traversal + LLM reasoning.
@@ -43,15 +43,75 @@ func NewAnalyzer(engine *Engine) *Analyzer {
 // AnalyzeFailure performs BFS on the dependency graph starting from target,
 // then asks the LLM to reason about severity and business impact.
 func (a *Analyzer) AnalyzeFailure(ctx context.Context, target string, g *graph.DependencyGraph) (*ImpactResult, error) {
-	// Build adjacency map: source → []target (downstream)
-	adj := map[string][]string{}
-	for _, e := range g.Edges {
-		if e.Confidence >= 0.3 {
-			adj[e.Source] = append(adj[e.Source], e.Target)
+	impactMap, paths, affected := traverse(g, target)
+
+	slog.Info("bfs complete", "target", target, "affected", len(affected))
+
+	// LLM reasoning for severity + explanation
+	severity := "medium"
+	explanation := fmt.Sprintf("Failure of %s may impact %d dependent resource(s).", target, len(affected))
+
+	if a.engine != nil {
+		system, user := ImpactAnalysisPrompt(target, affected, g)
+		raw, err := a.engine.ChatComplete(ctx, system, user)
+		if err != nil {
+			slog.Warn("llm impact analysis failed, using fallback", "error", err)
+		} else {
+			// Strip markdown fences if present
+			raw = strings.TrimSpace(raw)
+			raw = strings.TrimPrefix(raw, "```json")
+			raw = strings.TrimPrefix(raw, "```")
+			raw = strings.TrimSuffix(raw, "```")
+			raw = strings.TrimSpace(raw)
+
+			var llmResp struct {
+				Severity    string `json:"severity"`
+				Explanation string `json:"explanation"`
+			}
+			if err := json.Unmarshal([]byte(raw), &llmResp); err == nil {
+				severity = llmResp.Severity
+				explanation = llmResp.Explanation
+			}
 		}
 	}
 
-	// BFS from target (depth ≤ 5)
+	return &ImpactResult{
+		Target:            target,
+		AffectedResources: affected,
+		PropagationPaths:  paths,
+		Severity:          severity,
+		Explanation:       explanation,
+		ImpactMap:         impactMap,
+	}, nil
+}
+
+// traverse runs BFS on the dependency graph from target (depth ≤ 5) and
+// returns the impact level map, propagation paths, and affected node IDs.
+//
+// Failure propagation follows each edge type in its impact direction:
+//   - env_reference / ingress_backend / hpa_target: reverse
+//     (a failing callee degrades its callers — e.g. payment-svc → api-deployment)
+//   - selector_match / name_prefix: both ways
+//     (service and workload form one unit — a dead pod degrades its Service
+//     and vice versa)
+func traverse(g *graph.DependencyGraph, target string) (map[string]string, [][]string, []string) {
+	// Build impact adjacency map: node → []neighbor reachable under failure.
+	adj := map[string][]string{}
+	for _, e := range g.Edges {
+		if e.Confidence < 0.3 {
+			continue
+		}
+		switch e.EdgeType {
+		case "env_reference", "ingress_backend", "hpa_target":
+			// Callee failure impacts the caller.
+			adj[e.Target] = append(adj[e.Target], e.Source)
+		default:
+			// Unit-style edges propagate both ways.
+			adj[e.Source] = append(adj[e.Source], e.Target)
+			adj[e.Target] = append(adj[e.Target], e.Source)
+		}
+	}
+
 	const maxDepth = 5
 	impactMap := map[string]string{target: string(ImpactCritical)}
 	depthMap := map[string]int{target: 0}
@@ -92,36 +152,6 @@ func (a *Analyzer) AnalyzeFailure(ctx context.Context, target string, g *graph.D
 		}
 	}
 
-	slog.Info("bfs complete", "target", target, "affected", len(affected))
-
-	// LLM reasoning for severity + explanation
-	severity := "medium"
-	explanation := fmt.Sprintf("%s 장애로 인해 %d개 리소스가 영향받습니다.", target, len(affected))
-
-	if a.engine != nil {
-		system, user := ImpactAnalysisPrompt(target, affected, g)
-		raw, err := a.engine.ChatComplete(ctx, system, user)
-		if err != nil {
-			slog.Warn("llm impact analysis failed, using fallback", "error", err)
-		} else {
-			// Strip markdown fences if present
-			raw = strings.TrimSpace(raw)
-			raw = strings.TrimPrefix(raw, "```json")
-			raw = strings.TrimPrefix(raw, "```")
-			raw = strings.TrimSuffix(raw, "```")
-			raw = strings.TrimSpace(raw)
-
-			var llmResp struct {
-				Severity    string `json:"severity"`
-				Explanation string `json:"explanation"`
-			}
-			if err := json.Unmarshal([]byte(raw), &llmResp); err == nil {
-				severity = llmResp.Severity
-				explanation = llmResp.Explanation
-			}
-		}
-	}
-
 	// Mark remaining nodes as none
 	nodeSet := map[string]bool{}
 	for _, n := range g.Nodes {
@@ -133,12 +163,5 @@ func (a *Analyzer) AnalyzeFailure(ctx context.Context, target string, g *graph.D
 		}
 	}
 
-	return &ImpactResult{
-		Target:            target,
-		AffectedResources: affected,
-		PropagationPaths:  paths,
-		Severity:          severity,
-		Explanation:       explanation,
-		ImpactMap:         impactMap,
-	}, nil
+	return impactMap, paths, affected
 }

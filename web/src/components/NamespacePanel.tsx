@@ -1,60 +1,32 @@
 import { useState } from 'react'
-import { clsx } from 'clsx'
-import {
-  Box,
-  ChevronDown,
-  ChevronRight,
-  Globe,
-  Network,
-  Package,
-  Server,
-  Shield,
-  Users,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { cn } from '../lib/utils'
+import { kindIconFor } from './cm/primitives'
 import { useImpact } from '../hooks/useImpact'
 import { useNamespaceResources, useNamespaces } from '../hooks/useNamespaces'
 import type { ResourceStatus, StatusPhase } from '../types'
 
-// ── phase → colour / label ──────────────────────────────────────────────────
+// ── phase → dot / badge ────────────────────────────────────────────────────
 
 const phaseDot: Record<StatusPhase, string> = {
-  Healthy:   'bg-emerald-400',
-  Degraded:  'bg-red-500',
-  Warning:   'bg-amber-400',
-  Pending:   'bg-sky-400',
-  Completed: 'bg-slate-300',
-  Unknown:   'bg-slate-300',
+  Healthy: 'bg-healthy',
+  Degraded: 'bg-critical',
+  Warning: 'bg-warning',
+  Pending: 'bg-primary',
+  Completed: 'bg-unknown',
+  Unknown: 'bg-unknown',
 }
 
 const phaseBadge: Record<StatusPhase, string> = {
-  Healthy:   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Degraded:  'bg-red-50 text-red-700 border-red-200',
-  Warning:   'bg-amber-50 text-amber-700 border-amber-200',
-  Pending:   'bg-sky-50 text-sky-700 border-sky-200',
-  Completed: 'bg-slate-50 text-slate-500 border-slate-200',
-  Unknown:   'bg-slate-50 text-slate-500 border-slate-200',
+  Healthy: 'bg-healthy/10 text-healthy border-healthy/30',
+  Degraded: 'bg-critical/10 text-critical border-critical/30',
+  Warning: 'bg-warning/10 text-warning border-warning/30',
+  Pending: 'bg-primary/10 text-primary border-primary/30',
+  Completed: 'bg-muted text-muted-foreground border-border-strong',
+  Unknown: 'bg-muted text-muted-foreground border-border-strong',
 }
 
-// ── kind → icon ─────────────────────────────────────────────────────────────
-
-const kindIcon: Record<string, React.ReactNode> = {
-  Ingress:                   <Globe className="w-3 h-3 text-purple-500" />,
-  Service:                   <Network className="w-3 h-3 text-blue-500" />,
-  Deployment:                <Package className="w-3 h-3 text-green-500" />,
-  StatefulSet:               <Server className="w-3 h-3 text-teal-500" />,
-  DaemonSet:                 <Shield className="w-3 h-3 text-indigo-500" />,
-  Pod:                       <Box className="w-3 h-3 text-cyan-500" />,
-  ConfigMap:                 <Box className="w-3 h-3 text-slate-400" />,
-  Secret:                    <Box className="w-3 h-3 text-amber-500" />,
-  HorizontalPodAutoscaler:   <Users className="w-3 h-3 text-orange-500" />,
-  NetworkPolicy:             <Shield className="w-3 h-3 text-rose-500" />,
-}
-
-function kindGroupIcon(kind: string): React.ReactNode {
-  return kindIcon[kind] ?? <Box className="w-3 h-3 text-slate-400" />
-}
-
-// ── helpers ─────────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 
 function buildResourceId(r: ResourceStatus): string {
   return `${r.kind}/${r.namespace}/${r.name}`
@@ -67,7 +39,7 @@ function groupByKind(resources: ResourceStatus[]): Record<string, ResourceStatus
   }, {})
 }
 
-// ── component ───────────────────────────────────────────────────────────────
+// ── component ──────────────────────────────────────────────────────────────
 
 export function NamespacePanel() {
   const { data, isLoading, error } = useNamespaces()
@@ -75,26 +47,18 @@ export function NamespacePanel() {
   const { target, setTarget } = useImpact()
 
   if (isLoading) {
-    return (
-      <div className="p-4 text-slate-400 text-sm animate-pulse">
-        Loading namespaces…
-      </div>
-    )
+    return <div className="p-4 text-sm text-muted-foreground animate-pulse">Loading namespaces…</div>
   }
 
   if (error) {
-    return (
-      <div className="p-4 text-red-500 text-xs">
-        Failed to load namespaces: {error.message}
-      </div>
-    )
+    return <div className="p-4 text-xs text-critical">Failed to load namespaces: {error.message}</div>
   }
 
   const namespaces = data?.namespaces ?? []
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100 sticky top-0 bg-white z-10">
+      <div className="label-xs sticky top-0 z-10 border-b bg-surface px-3 py-2">
         Namespaces ({namespaces.length})
       </div>
 
@@ -106,22 +70,20 @@ export function NamespacePanel() {
           resourceCount={ns.resourceCount}
           age={ns.age}
           expanded={expanded === ns.name}
-          onToggle={() =>
-            setExpanded((prev) => (prev === ns.name ? null : ns.name))
-          }
+          onToggle={() => setExpanded((prev) => (prev === ns.name ? null : ns.name))}
           target={target}
           setTarget={setTarget}
         />
       ))}
 
       {namespaces.length === 0 && (
-        <div className="p-4 text-slate-400 text-xs">No namespaces found.</div>
+        <div className="p-4 text-xs text-muted-foreground">No namespaces found.</div>
       )}
     </div>
   )
 }
 
-// ── namespace row (expandable) ──────────────────────────────────────────────
+// ── namespace row (expandable) ─────────────────────────────────────────────
 
 interface NamespaceRowProps {
   name: string
@@ -145,47 +107,41 @@ function NamespaceRow({
   setTarget,
 }: NamespaceRowProps) {
   return (
-    <div className="border-b border-slate-50">
+    <div className="border-b border-border/60">
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-1.5 px-2 py-2 text-xs hover:bg-slate-50 transition-colors"
+        className="flex w-full items-center gap-1.5 px-2 py-2 text-xs transition-colors hover:bg-accent"
       >
         {expanded ? (
-          <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
         )}
-        <span
-          className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', phaseDot[phase])}
-        />
-        <span className="font-mono font-medium text-slate-700 truncate flex-1 text-left">
+        <span className={cn('size-1.5 shrink-0 rounded-full', phaseDot[phase])} />
+        <span className="min-w-0 flex-1 truncate text-left font-mono font-medium text-foreground">
           {name}
         </span>
         <span
-          className={clsx(
-            'px-1 py-0.5 rounded text-[9px] font-medium border flex-shrink-0',
+          className={cn(
+            'flex-shrink-0 rounded-sm border px-1 py-0.5 font-mono text-[9px] font-medium',
             phaseBadge[phase],
           )}
         >
           {phase}
         </span>
-        <span className="text-[9px] text-slate-400 flex-shrink-0 ml-0.5">
+        <span className="ml-0.5 flex-shrink-0 font-mono text-[9px] text-muted-foreground">
           {resourceCount} · {age}
         </span>
       </button>
 
       {expanded && (
-        <NamespaceResources
-          namespace={name}
-          target={target}
-          setTarget={setTarget}
-        />
+        <NamespaceResources namespace={name} target={target} setTarget={setTarget} />
       )}
     </div>
   )
 }
 
-// ── resources under an expanded namespace ───────────────────────────────────
+// ── resources under an expanded namespace ──────────────────────────────────
 
 interface NamespaceResourcesProps {
   namespace: string
@@ -193,79 +149,60 @@ interface NamespaceResourcesProps {
   setTarget: (t: string) => void
 }
 
-function NamespaceResources({
-  namespace,
-  target,
-  setTarget,
-}: NamespaceResourcesProps) {
+function NamespaceResources({ namespace, target, setTarget }: NamespaceResourcesProps) {
   const { data, isLoading, error } = useNamespaceResources(namespace)
 
   if (isLoading) {
-    return (
-      <div className="px-8 py-2 text-slate-400 text-[11px] animate-pulse">
-        Loading resources…
-      </div>
-    )
+    return <div className="animate-pulse px-8 py-2 text-[11px] text-muted-foreground">Loading resources…</div>
   }
 
   if (error) {
-    return (
-      <div className="px-8 py-2 text-red-500 text-[11px]">
-        {error.message}
-      </div>
-    )
+    return <div className="px-8 py-2 text-[11px] text-critical">{error.message}</div>
   }
 
   const resources = data?.resources ?? []
   if (resources.length === 0) {
-    return (
-      <div className="px-8 py-2 text-slate-400 text-[11px]">
-        No resources in this namespace.
-      </div>
-    )
+    return <div className="px-8 py-2 text-[11px] text-muted-foreground">No resources in this namespace.</div>
   }
 
   const grouped = groupByKind(resources)
-  // Sort kinds for stable order.
   const kinds = Object.keys(grouped).sort()
 
   return (
     <div className="pb-2">
-      {kinds.map((kind) => (
-        <div key={kind}>
-          <div className="flex items-center gap-1.5 px-6 py-1 text-[10px] font-medium text-slate-400">
-            {kindGroupIcon(kind)}
-            {kind} ({grouped[kind].length})
-          </div>
-          {grouped[kind].map((r) => {
-            const id = buildResourceId(r)
-            return (
-              <button
-                key={id}
-                onClick={() => setTarget(id)}
-                title={r.message}
-                className={clsx(
-                  'w-full flex items-center gap-1.5 px-8 py-1 text-[11px] transition-colors',
-                  target === id
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'text-slate-600 hover:bg-slate-50',
-                )}
-              >
-                <span
-                  className={clsx(
-                    'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                    phaseDot[r.phase],
+      {kinds.map((kind) => {
+        const Icon = kindIconFor(kind)
+        return (
+          <div key={kind}>
+            <div className="flex items-center gap-1.5 px-6 py-1 text-[10px] font-medium text-muted-foreground">
+              <Icon className="size-3" />
+              {kind} ({grouped[kind].length})
+            </div>
+            {grouped[kind].map((r) => {
+              const id = buildResourceId(r)
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTarget(id)}
+                  title={r.message}
+                  className={cn(
+                    'flex w-full items-center gap-1.5 px-8 py-1 text-[11px] transition-colors',
+                    target === id
+                      ? 'bg-accent font-medium text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}
-                />
-                <span className="truncate flex-1 text-left">{r.name}</span>
-                <span className="text-[9px] text-slate-400 flex-shrink-0">
-                  {r.ready}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      ))}
+                >
+                  <span className={cn('size-1.5 shrink-0 rounded-full', phaseDot[r.phase])} />
+                  <span className="min-w-0 flex-1 truncate text-left font-mono">{r.name}</span>
+                  <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+                    {r.ready}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )
+      })}
     </div>
   )
 }
