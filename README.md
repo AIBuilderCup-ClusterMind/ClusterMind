@@ -3,8 +3,8 @@
 [English](./README.md) | [한국어](./README.ko.md)
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
-[![Gemini](https://img.shields.io/badge/Gemini-2.0--flash-4285F4.svg)](https://aistudio.google.com)
-[![Tests](https://img.shields.io/badge/Tests-4%20passed-brightgreen.svg)](#test-results)
+[![Gemini](https://img.shields.io/badge/Gemini-3.5--flash--lite-4285F4.svg)](https://aistudio.google.com)
+[![Tests](https://img.shields.io/badge/Tests-passing-brightgreen.svg)](#test-results)
 [![React Flow](https://img.shields.io/badge/React%20Flow-v12-purple.svg)](https://reactflow.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
@@ -73,12 +73,15 @@ cd web && npm install && cd ..
 ```
 
 #### 3. Set Environment Variables
+Copy `.env.example` to `.env`:
 
 ```bash
+# Backend / CLI settings (see .env.example)
 export GEMINI_API_KEY=AIza...          # Required for AI features (https://aistudio.google.com/apikey)
-export KUBECONFIG=~/.kube/config      # kubeconfig path (default)
-export CLUSTERMIND_NAMESPACE=          # Namespace to collect (empty = all namespaces)
-export CLUSTERMIND_PORT=8080          # API server port
+export GEMINI_MODEL=gemini-3.5-flash-lite # Optional model override (default: gemini-3.5-flash-lite)
+export KUBECONFIG=~/.kube/config      # kubeconfig path (default: ~/.kube/config)
+export CLUSTERMIND_NAMESPACE=demo     # Dedicated demo namespace to collect
+export CLUSTERMIND_PORT=8080          # API server port (default: 8080)
 export CLUSTERMIND_LOG_LEVEL=INFO     # Log level: DEBUG|INFO|WARN|ERROR
 ```
 
@@ -207,10 +210,12 @@ go test -v ./...
 ## Safety & Design Principles
 
 - **Read-only** — ClusterMind never writes to the cluster.
-- **Secret safety** — `Secret.Data` is set to `nil` immediately after collection; values never appear in API responses.
+- **Zero Secret Collection** — ClusterMind deliberately omits Kubernetes Secrets, ensuring sensitive values are never read, stored, or exposed.
+- **Dedicated Namespace Scoping** — Workload collection and RBAC can be scoped to a dedicated demo namespace (e.g., `demo`).
+- **Least-Privilege RBAC** — Cloud Run and GKE deployments use namespace-scoped Roles and short-lived tokens, avoiding cluster-admin or static secret tokens.
 - **Confidence filtering** — Edges with confidence < 0.3 are excluded from the graph.
 - **BFS depth limit** — Traversal is capped at 5 hops to prevent runaway cycles.
-- **Structured LLM input** — User input is never forwarded raw to the LLM; all context is JSON-serialised and truncated to ≤ 4 000 chars before sending.
+- **Structured LLM input** — Context is JSON-serialised with validation and deterministic fallback if the LLM is unreachable.
 
 ---
 
@@ -260,9 +265,11 @@ clustermind/
 |--------|------|-------------|
 | `GET` | `/api/v1/cluster/snapshot` | Resource count summary by kind |
 | `GET` | `/api/v1/cluster/graph` | React Flow nodes + edges JSON |
+| `GET` | `/api/v1/twin/snapshot` | Digital twin view model (nodes, edges, health, changes, incidents) |
 | `GET` | `/api/v1/namespaces` | All namespaces with resource counts + status rollup |
 | `GET` | `/api/v1/namespaces/:namespace/resources?kind=Pod` | Resources in a namespace with live health status |
 | `POST` | `/api/v1/impact` | Failure blast-radius analysis |
+| `POST` | `/api/v1/investigate` | Incident root-cause investigation report (Gemini-backed) |
 | `GET` | `/api/v1/watch` | SSE stream for live cluster changes |
 | `GET` | `/health` | Health check |
 
@@ -272,11 +279,12 @@ clustermind/
 
 | Layer | Technology |
 |-------|------------|
-| Backend | Go 1.22 + Gin + client-go + Gemini API (`google.golang.org/genai`) |
-| Frontend | TypeScript 5 + React 18 + React Flow v12 + ELK.js |
+| Backend | Go 1.24 + Gin + client-go + Gemini API (`google.golang.org/genai`) |
+| Frontend | TypeScript 5 + React 18 + React Flow v12 + Vite |
 | Styling | Tailwind CSS |
 | State | React Query (server) + Zustand (client) |
 | Icons | lucide-react |
+| Deployment | Google Cloud Run + Artifact Registry + Secret Manager |
 
 ---
 

@@ -34,6 +34,7 @@ type ResourceStatus struct {
 	Reason    string      `json:"reason"`  // short reason e.g. "CrashLoopBackOff", "Available"
 	Message   string      `json:"message"` // human-readable detail
 	Age       string      `json:"age"`     // human-readable age e.g. "2d3h"
+	CreatedAt time.Time   `json:"createdAt,omitempty"`
 }
 
 // NamespaceResourceStats aggregates resource counts and phase breakdown for one namespace.
@@ -186,6 +187,12 @@ func extractDeploymentStatus(d *appsv1.Deployment, now time.Time) ResourceStatus
 		Namespace: d.Namespace,
 		Ready:     fmt.Sprintf("%d/%d", ready, desired),
 		Age:       formatAge(d.CreationTimestamp.Time, now),
+		CreatedAt: d.CreationTimestamp.Time,
+	}
+	for _, cond := range d.Status.Conditions {
+		if !cond.LastTransitionTime.IsZero() && cond.LastTransitionTime.After(rs.CreatedAt) {
+			rs.CreatedAt = cond.LastTransitionTime.Time
+		}
 	}
 
 	switch {
@@ -228,6 +235,7 @@ func extractStatefulSetStatus(s *appsv1.StatefulSet, now time.Time) ResourceStat
 		Namespace: s.Namespace,
 		Ready:     fmt.Sprintf("%d/%d", ready, desired),
 		Age:       formatAge(s.CreationTimestamp.Time, now),
+		CreatedAt: s.CreationTimestamp.Time,
 	}
 
 	switch {
@@ -266,6 +274,7 @@ func extractDaemonSetStatus(ds *appsv1.DaemonSet, now time.Time) ResourceStatus 
 		Namespace: ds.Namespace,
 		Ready:     fmt.Sprintf("%d/%d", ready, desired),
 		Age:       formatAge(ds.CreationTimestamp.Time, now),
+		CreatedAt: ds.CreationTimestamp.Time,
 	}
 
 	switch {
@@ -319,6 +328,10 @@ func extractPodStatus(p *corev1.Pod, now time.Time) ResourceStatus {
 		Namespace: p.Namespace,
 		Ready:     fmt.Sprintf("%d/%d", readyCount, total),
 		Age:       formatAge(p.CreationTimestamp.Time, now),
+		CreatedAt: p.CreationTimestamp.Time,
+	}
+	if !p.Status.StartTime.IsZero() {
+		rs.CreatedAt = p.Status.StartTime.Time
 	}
 
 	// CrashLoopBackOff overrides everything.
@@ -371,6 +384,7 @@ func extractServiceStatus(svc *corev1.Service, now time.Time) ResourceStatus {
 		Namespace: svc.Namespace,
 		Ready:     "—",
 		Age:       formatAge(svc.CreationTimestamp.Time, now),
+		CreatedAt: svc.CreationTimestamp.Time,
 	}
 
 	ports := len(svc.Spec.Ports)
@@ -421,16 +435,24 @@ func extractIngressStatus(ing *networkingv1.Ingress, now time.Time) ResourceStat
 		Namespace: ing.Namespace,
 		Ready:     "—",
 		Age:       formatAge(ing.CreationTimestamp.Time, now),
+		CreatedAt: ing.CreationTimestamp.Time,
 	}
 
 	if loadBalancerReady {
 		rs.Phase = StatusHealthy
 		rs.Reason = "Ready"
 		rs.Message = fmt.Sprintf("Load balancer provisioned, %d rule(s)", rules)
+	} else if rules > 0 {
+		// In local clusters (e.g. kind) or ingress controllers without LB status sync,
+		// an ingress routes traffic based on rules without an external LoadBalancer IP.
+		// It is operational and healthy unless genuine warning events occur.
+		rs.Phase = StatusHealthy
+		rs.Reason = "RoutingConfigured"
+		rs.Message = fmt.Sprintf("%d rule(s) configured (no external load balancer IP)", rules)
 	} else {
 		rs.Phase = StatusPending
-		rs.Reason = "LoadBalancerPending"
-		rs.Message = fmt.Sprintf("Waiting for load balancer, %d rule(s)", rules)
+		rs.Reason = "NoRules"
+		rs.Message = "No routing rules configured"
 	}
 	return rs
 }
@@ -450,6 +472,7 @@ func extractHPAStatus(hpa *autoscalingv2.HorizontalPodAutoscaler, now time.Time)
 		Namespace: hpa.Namespace,
 		Ready:     fmt.Sprintf("%d→%d", current, desired),
 		Age:       formatAge(hpa.CreationTimestamp.Time, now),
+		CreatedAt: hpa.CreationTimestamp.Time,
 	}
 
 	if current < minReplicas {
@@ -478,6 +501,7 @@ func staticStatus(kind, name, ns string, created, now time.Time, message string)
 		Reason:    "Static",
 		Message:   message,
 		Age:       formatAge(created, now),
+		CreatedAt: created,
 	}
 }
 

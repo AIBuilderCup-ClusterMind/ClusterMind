@@ -121,3 +121,61 @@ func TestGraphBuilder_EnvURLReference(t *testing.T) {
 	assert.NotContains(t, found, "Service/demo/api.payment-gateway.external", "external hosts are not services")
 	assert.NotContains(t, found, "Service/demo/not-a-url", "non-URL values are ignored")
 }
+
+func TestGraphBuilder_NoDuplicateHeuristicEdges(t *testing.T) {
+	snap := fixtures.MockSnapshot()
+	builder := graph.NewGraphBuilder()
+	g := builder.Build(snap)
+
+	// Check edges between payment-svc and payment-deployment
+	paymentSvcID := graph.NodeID("Service", "demo", "payment-svc")
+	paymentDepID := graph.NodeID("Deployment", "demo", "payment-deployment")
+
+	var connectingEdges []graph.DependencyEdge
+	for _, e := range g.Edges {
+		if (e.Source == paymentSvcID && e.Target == paymentDepID) ||
+			(e.Source == paymentDepID && e.Target == paymentSvcID) {
+			connectingEdges = append(connectingEdges, e)
+		}
+	}
+
+	require.Len(t, connectingEdges, 1, "must not add duplicate name_prefix edge when selector_match already connects nodes")
+	assert.Equal(t, "selector_match", connectingEdges[0].EdgeType)
+	assert.Equal(t, 0.95, connectingEdges[0].Confidence)
+}
+
+func TestGraphBuilder_HeuristicPrefixEdgeWhenNoSelectorMatch(t *testing.T) {
+	snap := &probe.ClusterSnapshot{
+		Services: []corev1.Service{{
+			ObjectMeta: metav1.ObjectMeta{Name: "order-svc", Namespace: "prod"},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{"unmatched": "true"},
+			},
+		}},
+		Deployments: []appsv1.Deployment{{
+			ObjectMeta: metav1.ObjectMeta{Name: "order-worker", Namespace: "prod"},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "worker"}},
+				},
+			},
+		}},
+	}
+	builder := graph.NewGraphBuilder()
+	g := builder.Build(snap)
+
+	src := graph.NodeID("Service", "prod", "order-svc")
+	tgt := graph.NodeID("Deployment", "prod", "order-worker")
+
+	var foundEdge *graph.DependencyEdge
+	for _, e := range g.Edges {
+		if e.Source == src && e.Target == tgt {
+			foundEdge = &e
+			break
+		}
+	}
+
+	require.NotNil(t, foundEdge, "heuristic name_prefix edge should be added when no selector match exists")
+	assert.Equal(t, "name_prefix", foundEdge.EdgeType)
+	assert.Equal(t, 0.4, foundEdge.Confidence)
+}

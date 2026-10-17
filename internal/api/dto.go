@@ -16,12 +16,14 @@ type ImpactRequest struct {
 // ImpactResponse is the POST /api/v1/impact response body.
 type ImpactResponse struct {
 	Target            string              `json:"target"`
+	GeneratedBy       string              `json:"generatedBy,omitempty"`
 	AffectedResources []string            `json:"affectedResources"`
 	PropagationPaths  [][]string          `json:"propagationPaths"`
 	Severity          string              `json:"severity"`
 	Explanation       string              `json:"explanation"`
 	Graph             *render.GraphResult `json:"graph"`
 }
+
 
 // SnapshotSummary is a lightweight summary returned by GET /api/v1/cluster/snapshot.
 type SnapshotSummary struct {

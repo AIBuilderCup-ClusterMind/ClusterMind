@@ -19,9 +19,22 @@ Thumbs.db
 *.swp
 *.swo
 
-# Env
+# Env & Secrets
 .env
-.env.local
+.env.*
+!.env.example
+web/.env
+web/.env.*
+!web/.env.example
+*.key
+*.pem
+*credentials*.json
+*service-account*.json
+
+# Kubernetes & Local Artifacts
+*kubeconfig*
+cluster_impact.json
+*.log
 
 # OpenCode
 .omo/

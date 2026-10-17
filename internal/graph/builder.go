@@ -194,6 +194,12 @@ func (b *GraphBuilder) inferByPrefix(snap *probe.ClusterSnapshot, g *DependencyG
 		all = append(all, entry{"Deployment", d.Namespace, d.Name})
 	}
 
+	existing := map[string]bool{}
+	for _, e := range g.Edges {
+		existing[e.Source+"|"+e.Target] = true
+		existing[e.Target+"|"+e.Source] = true
+	}
+
 	seen := map[string]bool{}
 	for i := 0; i < len(all); i++ {
 		for j := i + 1; j < len(all); j++ {
@@ -205,17 +211,22 @@ func (b *GraphBuilder) inferByPrefix(snap *probe.ClusterSnapshot, g *DependencyG
 			if len(prefix) < 3 {
 				continue
 			}
-			key := NodeID(a.kind, a.ns, a.name) + "|" + NodeID(b2.kind, b2.ns, b2.name)
-			if seen[key] {
+			var src, tgt string
+			if a.kind == "Service" {
+				src = NodeID(a.kind, a.ns, a.name)
+				tgt = NodeID(b2.kind, b2.ns, b2.name)
+			} else {
+				src = NodeID(b2.kind, b2.ns, b2.name)
+				tgt = NodeID(a.kind, a.ns, a.name)
+			}
+			key := src + "|" + tgt
+			if seen[key] || existing[key] || existing[tgt+"|"+src] {
 				continue
 			}
 			seen[key] = true
-			// Service → Deployment direction
-			if a.kind == "Service" {
-				addEdge(NodeID(a.kind, a.ns, a.name), NodeID(b2.kind, b2.ns, b2.name), "name_prefix", 0.4)
-			} else {
-				addEdge(NodeID(b2.kind, b2.ns, b2.name), NodeID(a.kind, a.ns, a.name), "name_prefix", 0.4)
-			}
+			existing[key] = true
+			existing[tgt+"|"+src] = true
+			addEdge(src, tgt, "name_prefix", 0.4)
 		}
 	}
 }

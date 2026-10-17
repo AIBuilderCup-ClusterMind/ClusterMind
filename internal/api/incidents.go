@@ -246,7 +246,10 @@ func buildIncidents(
 			if detail == "" {
 				detail = rs.Reason
 			}
-			startedAt = time.Now().UTC()
+			startedAt = rs.CreatedAt.UTC()
+			if startedAt.IsZero() {
+				startedAt = time.Now().UTC()
+			}
 			timeline = []TwinEvidence{{
 				ID:         "ev-" + incID + "-0",
 				Time:       startedAt.Format(time.RFC3339),

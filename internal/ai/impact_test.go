@@ -111,3 +111,50 @@ func TestTraverse_DepthCapAndConfidenceFilter(t *testing.T) {
 	// h is not even a graph node; the low-confidence edge never surfaces it.
 	assert.NotContains(t, impactMap, "h")
 }
+
+func TestTraverse_ContinuousMultiHopPropagationPaths(t *testing.T) {
+	target := "Service/demo/payment-svc"
+	_, paths, affected := traverse(demoGraph(), target)
+
+	require.NotEmpty(t, paths)
+	assert.Len(t, affected, 6)
+
+	// 1. Every path must be rooted at the target resource
+	for _, p := range paths {
+		require.GreaterOrEqual(t, len(p), 2, "path must contain at least target and a neighbor")
+		assert.Equal(t, target, p[0], "every path must begin with the target resource")
+	}
+
+	// 2. The longest path must be a continuous multi-hop chain reaching the ingress
+	longest := paths[0]
+	expectedChain := []string{
+		"Service/demo/payment-svc",
+		"Deployment/demo/api-deployment",
+		"Service/demo/api-svc",
+		"Deployment/demo/frontend-deployment",
+		"Service/demo/frontend-svc",
+		"Ingress/demo/ingress-nginx",
+	}
+	assert.Equal(t, expectedChain, longest, "longest path must represent continuous causal propagation")
+
+	// 3. Disconnected 2-node segments (e.g. api-deployment -> api-svc without payment-svc root) must NOT exist
+	for _, p := range paths {
+		if p[0] != target {
+			t.Errorf("found disconnected path segment not rooted at target: %v", p)
+		}
+	}
+}
+
+func TestAnalyzeFailure_Fallback(t *testing.T) {
+	analyzer := NewAnalyzer(nil)
+	target := "Service/demo/payment-svc"
+	result, err := analyzer.AnalyzeFailure(nil, target, demoGraph())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, target, result.Target)
+	assert.Equal(t, "fallback", result.GeneratedBy)
+	assert.Equal(t, "medium", result.Severity)
+	assert.Contains(t, result.Explanation, "Failure of Service/demo/payment-svc may impact")
+	assert.Len(t, result.AffectedResources, 6)
+}
