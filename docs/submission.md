@@ -33,10 +33,13 @@
 
 ## Deliverables
 
-- [ ] **Prototype Link** — Deployed on GCP / Cloud Run (Arpita Pani, Checking)
+- [ ] **Prototype Link** — Deployed on GCP / Cloud Run
+
+      https://clustermind-607541401069.asia-northeast3.run.app/
+
 - [ ] **Final Prototype PPT/Deck** — Converted into PDF (chkwak, to be updated)
 
-      ClusterMind_AI_Builder_Cup_Submission_draft.pptx
+      ClusterMind_AI_Builder_Cup.pdf
 
 - [x] **GitHub Repository Link** — Public access (completed)
 
@@ -44,12 +47,18 @@
 
 - [ ] **Demo Video Link** — 3–4 minutes (chkwak, to be updated)
 
-      https://drive.google.com/file/d/11syWDjm-r1Q426zWms1LRN8cgI9PqOOw/view
+      https://www.youtube.com/watch?v=ABtdFjtSfXg
 
 - [ ] **Brief Description of Your Solution** — Include how you are leveraging Google services in your submission (chkwak, to be updated)
 
-      **ClusterMind** is an AI-powered Kubernetes digital twin that transforms live cluster infrastructure into an interactive topology map, calculates failure blast radius, and delivers incident investigations. Built for enterprise reliability, it collects cluster resources strictly read-only, infers dependency edges with confidence scores, and visualizes system health via an interactive React Flow canvas backed by a Go/Gin REST API.
+      **ClusterMind** is an AI-powered Kubernetes digital twin that turns a live cluster into an interactive topology map. It collects cluster resources strictly read-only, infers a dependency graph from label selectors, ingress backends, HPA targets, and config references (with per-edge confidence scores), and renders system health on an interactive React Flow canvas served by a Go/Gin REST API and a React/TypeScript SPA. On top of the graph it derives sev1–sev3 incident timelines from Kubernetes events, computes failure blast radius with a five-hop BFS traversal, and produces AI investigation reports that link causes to evidence and suggest kubectl next checks.
 
-      **How We Leverage Google Cloud Technologies:**
-      - **Gemini (`google.golang.org/genai` SDK):** Powers AI incident investigations and blast-radius impact analysis. ClusterMind constructs context-rich graph and timeline prompts, requests structured JSON reports with root causes and remediation steps, and falls back to deterministic analysis when offline.
-      - **Cloud Run & GKE:** The entire application is packaged as a distroless container (embedding both the compiled React frontend and Go backend) and deployed on Cloud Run with dynamic port binding. It connects to an explicitly specified remote GKE target restricted to a dedicated demo namespace via least-privilege RBAC (no Secrets collection) and short-lived TokenRequest / service identity authentication. Secret Manager securely injects the container kubeconfig and `GEMINI_API_KEY`.
+      Live links: app https://clustermind-607541401069.asia-northeast3.run.app · intro page https://clustermind-intro-607541401069.asia-northeast3.run.app
+
+      **How we leverage Google Cloud technologies:**
+
+      - **Gemini (`google.golang.org/genai` SDK, `gemini-3.5-flash-lite`)** — The core AI engine. Gemini powers (1) incident root-cause investigation: graph topology and event-timeline context are JSON-serialized into structured prompts that request structured JSON reports (summary, observed facts, ranked causes with confidence, evidence links, next checks), and (2) failure impact analysis, where a deterministic five-hop BFS blast radius is enriched with business-impact reasoning and severity scoring. When no API key is configured or the model is unreachable, ClusterMind falls back to a deterministic report so the demo never fails.
+      - **Cloud Run** — The entire application ships as a single distroless, non-root container built by Cloud Build: a multi-stage Dockerfile compiles the React frontend and embeds it into the Go binary (`embed.FS`), so one image serves both the SPA and the REST API with dynamic `PORT` binding and scale-to-zero (`--min-instances=0`). The demo app, the incident-investigation flow, and the bilingual intro page all run on Cloud Run in `asia-northeast3`. A clusterless demo mode (`CLUSTERMIND_DEMO=failure`) lets the deployed prototype demonstrate a full failure scenario — broken `payment-deployment`, derived sev1 incident timeline, and Gemini investigation — without any backing cluster, which is what the public demo link runs today.
+      - **Secret Manager** — `GEMINI_API_KEY` is stored in Secret Manager and injected into the Cloud Run revision as a runtime secret; for real-cluster deployments the generated container kubeconfig (short-lived ServiceAccount token) is stored the same way and mounted as a volume. No credentials are ever baked into the image or the repository.
+      - **Artifact Registry + Cloud Build** — Both deploy scripts use `gcloud run deploy --source`, which builds the container image via Cloud Build and stores it in Artifact Registry (APIs and IAM bindings provisioned idempotently by the scripts).
+      - **GKE (remote-cluster mode)** — `cloudrundeploy.sh` connects Cloud Run to an explicitly targeted remote GKE cluster using least-privilege access: a namespace-scoped reader Role plus `roles/container.viewer` for the Cloud Run service identity, and a TokenRequest-generated short-lived SA token — no cluster-admin, no static secret tokens. ClusterMind never writes to the cluster and deliberately never collects Kubernetes Secrets.

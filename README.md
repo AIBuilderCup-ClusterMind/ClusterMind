@@ -2,7 +2,7 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.24-blue.svg)](https://golang.org)
 [![Gemini](https://img.shields.io/badge/Gemini-3.5--flash--lite-4285F4.svg)](https://aistudio.google.com)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen.svg)](#test-results)
 [![React Flow](https://img.shields.io/badge/React%20Flow-v12-purple.svg)](https://reactflow.dev)
@@ -33,8 +33,11 @@ The demo app runs on Cloud Run in **demo mode** (`CLUSTERMIND_DEMO=failure`): a 
 - **Interactive React Flow Graph**: Drag, zoom, minimap — failure nodes highlighted with animated colour coding in real time.
 - **Per-Namespace Resource Status**: Every namespace is listed with a status rollup (Healthy / Degraded / Warning / Pending); expanding a namespace shows each resource's live health, ready ratio, and reason.
 - **Node Detail Panel**: Click any node on the graph to open a right-side detail panel with live status, metadata, upstream/downstream dependencies, and a one-click "Analyze Impact" action.
+- **Incident Timeline**: Kubernetes Warning events are correlated into sev1–sev3 incidents per resource, each with an evidence timeline (recent Warning events are required for otherwise-healthy resources).
+- **AI Investigation Reports**: `POST /api/v1/investigate` runs a Gemini-powered root-cause investigation returning a summary, observed facts, ranked possible causes with confidence, evidence links, and kubectl next checks — with a deterministic fallback when no LLM key is configured.
+- **Clusterless Demo Mode**: `CLUSTERMIND_DEMO=failure|healthy` runs the entire stack against an embedded virtual cluster — no kubeconfig or cluster required.
 - **One-Shot Runner**: `./run.sh` builds the Go backend, installs frontend deps, and launches both servers concurrently.
-- **Safe Secret Handling**: `Secret.Data` is set to `nil` immediately after collection; secret values never appear in API responses or logs.
+- **Safe Secret Handling**: Kubernetes Secrets are never collected at all — no secret names or values are read, stored, or exposed.
 - **SSE Live Watch**: Streams cluster change events every 30 seconds for always-current topology.
 - **CLI + REST API**: `serve`, `analyze`, `impact` CLI commands backed by a Gin HTTP server.
 
@@ -47,6 +50,8 @@ The demo app runs on Cloud Run in **demo mode** (`CLUSTERMIND_DEMO=failure`): a 
 | `serve` | `clustermind serve --port 8080 --namespace demo` | Start the REST API server |
 | `analyze` | `clustermind analyze --namespace demo` | Print cluster structure + AI summary to terminal |
 | `impact` | `clustermind impact --target Service/demo/payment-svc` | Run failure blast-radius analysis and save React Flow JSON |
+
+Every command also accepts `--demo [healthy|failure]` to run against the embedded virtual cluster (no kubeconfig needed).
 
 ---
 
@@ -93,6 +98,7 @@ export GEMINI_MODEL=gemini-3.5-flash-lite # Optional model override (default: ge
 export KUBECONFIG=~/.kube/config      # kubeconfig path (default: ~/.kube/config)
 export CLUSTERMIND_NAMESPACE=demo     # Dedicated demo namespace to collect
 export CLUSTERMIND_PORT=8080          # API server port (default: 8080)
+export CLUSTERMIND_DEMO=failure       # Clusterless demo mode: 1|healthy | failure (default: off)
 export CLUSTERMIND_LOG_LEVEL=INFO     # Log level: DEBUG|INFO|WARN|ERROR
 ```
 
@@ -117,7 +123,7 @@ make run-frontend
 # → http://localhost:5173
 ```
 
-Open `http://localhost:5173` in your browser to see the interactive cluster graph:
+Open `http://localhost:5173` in your browser to see the interactive cluster graph. The left nav has four views — **Overview** (fleet stats + namespace panel), **Topology** (interactive graph), **Incidents** (timeline + impact), and **Investigation** (AI report). The diagram below shows the Topology view:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -195,25 +201,41 @@ payment confirmation alerts.
 React Flow JSON → cluster_impact.json
 ```
 
+### 9. Incidents & Investigation (Web UI)
+
+```
+Incidents view (left nav → Incidents):
+  1. sev1 / sev2 / sev3 incidents derived from K8s Warning events + resource health
+  2. Click an incident → evidence timeline + automatic impact overlay on the graph
+  3. Investigation panel → POST /api/v1/investigate
+     → summary, observed facts, ranked possible causes (confidence),
+       supporting evidence, kubectl next checks
+     → deterministic fallback report when no GEMINI_API_KEY is set
+
+Investigation view (left nav → Investigation):
+  4. Full-page investigation report for the selected incident
+```
+
 ---
 
 ## Test Results
 
-All graph builder test specifications are implemented and passing:
+All tests pass — covering graph builder edge inference, impact traversal, incident derivation, investigation fallback, demo collector, status normalization, and layout:
 
 ```
-=== RUN   TestGraphBuilder_LabelSelectorMatch    --- PASS
-=== RUN   TestGraphBuilder_IngressToService      --- PASS
-=== RUN   TestGraphBuilder_ServiceDeploymentMatch--- PASS
-=== RUN   TestGraphBuilder_NodeIDFormat          --- PASS
-PASS
-ok  	github.com/clustermind/clustermind/tests	0.540s
+$ go test ./...
+ok  	github.com/clustermind/clustermind/internal/ai
+ok  	github.com/clustermind/clustermind/internal/api
+ok  	github.com/clustermind/clustermind/internal/probe
+ok  	github.com/clustermind/clustermind/internal/render
+ok  	github.com/clustermind/clustermind/tests
 ```
 
 Run tests at any time with:
 
 ```bash
-go test -v ./...
+go test -v ./...        # Go backend tests
+cd web && npm test      # Frontend tests (node --test)
 ```
 
 ---
@@ -235,34 +257,42 @@ go test -v ./...
 ```
 clustermind/
 ├── run.sh                          # One-shot build & run (backend + frontend)
+├── deploycmd.sh                    # Cloud Run deploy — clusterless demo mode
+├── cloudrundeploy.sh               # Cloud Run deploy — real remote GKE cluster
 ├── cmd/clustermind/main.go         # CLI entrypoint (serve / analyze / impact)
 ├── internal/
 │   ├── probe/                      # K8s resource collection + status extraction
 │   │   ├── collector.go
+│   │   ├── demo.go                 # Clusterless demo-mode virtual collector
 │   │   ├── snapshot.go
 │   │   └── status.go              # Per-resource health normalization
 │   ├── graph/                      # Dependency edge inference
 │   ├── ai/                         # LLM engine, prompts, impact analysis
+│   │   └── investigation.go        # Incident root-cause investigation report
 │   ├── render/                     # React Flow JSON conversion
-│   └── api/                        # Gin HTTP server + handlers + DTOs
+│   └── api/
+│       ├── server.go               # Gin HTTP server
+│       ├── handlers.go             # REST handlers
+│       └── incidents.go            # K8s events → incidents/changes derivation
 ├── web/src/
+│   ├── App.tsx                     # 4-view routing (Overview/Topology/Incidents/Investigation)
 │   ├── components/
-│   │   ├── ClusterGraph.tsx        # React Flow canvas + node click handling
+│   │   ├── cm/                     # Design system (AppShell, primitives, icons)
+│   │   ├── TopologyGraph.tsx       # React Flow canvas + impact overlay
 │   │   ├── NamespacePanel.tsx      # Namespace tree with status dots
 │   │   ├── NodeDetailPanel.tsx     # Right-side node detail panel
-│   │   ├── RightPanel.tsx          # Details / Impact tab container
 │   │   ├── ImpactPanel.tsx         # Failure impact simulator
+│   │   ├── IncidentTimeline.tsx    # Incident evidence timeline
+│   │   ├── InvestigationPanel.tsx  # Investigation report (facts / causes / next checks)
 │   │   └── SeverityBadge.tsx
-│   ├── hooks/
-│   │   ├── useCluster.ts           # Graph fetching (React Query)
-│   │   ├── useImpact.ts            # Impact analysis state (Zustand)
-│   │   ├── useNamespaces.ts        # Namespace + resource status fetching
-│   │   └── useSelection.ts         # Selected node state (Zustand)
+│   ├── routes/                     # Overview / Topology / Incidents / Investigation views
+│   ├── hooks/                      # useTwin, useImpact, useSelection, useNamespaces, useIncident, useInvestigate
 │   ├── api/client.ts               # Typed fetch wrappers
 │   └── types/index.ts              # TypeScript types mirroring Go DTOs
 ├── tests/
-│   ├── fixtures/mock_snapshot.go   # Mock cluster data
-│   └── graph_builder_test.go       # Unit tests
+│   ├── fixtures/                   # Mock cluster data
+│   └── *_test.go                   # Graph builder, impact, demo collector tests
+├── docs/index.html                 # Bilingual intro page (Cloud Run via docs/cloudeRunDeploy.sh)
 └── demo/
     ├── mock_cluster.yaml           # Demo K8s resources
     └── run_demo.sh                 # One-shot setup script
@@ -296,6 +326,21 @@ clustermind/
 | State | React Query (server) + Zustand (client) |
 | Icons | lucide-react |
 | Deployment | Google Cloud Run + Artifact Registry + Secret Manager |
+
+---
+
+## Deploying to Cloud Run
+
+| Script | Purpose |
+|--------|---------|
+| `./deploycmd.sh` | Clusterless demo deploy (`CLUSTERMIND_DEMO`, GEMINI_API_KEY → Secret Manager) |
+| `PROJECT_ID=… KUBE_CONTEXT=… ./cloudrundeploy.sh` | Deploy against a real remote GKE cluster (kubeconfig → Secret Manager) |
+| `./docs/cloudeRunDeploy.sh` | Deploy the bilingual intro page (`docs/`) |
+
+```bash
+# Live demo (clusterless failure scenario) — see Live Demo section above
+PROJECT_ID=my-project ./deploycmd.sh
+```
 
 ---
 
