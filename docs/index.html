@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClusterMind — AI Infrastructure Digital Twin</title>
+<meta name="description" content="An AI infrastructure digital twin that analyzes Kubernetes clusters in real time to auto-generate topology maps, dependency graphs, and failure blast radii. Go + Gemini + React Flow, deployed on Google Cloud Run." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' > <path d='m10 16 1.5 1.5' /> <path d='m14 8-1.5-1.5' /> <path d='M15 2c-1.798 1.998-2.518 3.995-2.807 5.993' /> <path d='m16.5 10.5 1 1' /> <path d='m17 6-2.891-2.891' /> <path d='M2 15c6.667-6 13.333 0 20-6' /> <path d='m20 9 .891.891' /> <path d='M3.109 14.109 4 15' /> <path d='m6.5 12.5 1 1' /> <path d='m7 18 2.891 2.891' /> <path d='M9 22c1.798-1.998 2.518-3.995 2.807-5.993' /> </svg>" />
+<style>
+  :root {
+    --bg: oklch(0.16 0.01 260);
+    --bg-2: oklch(0.20 0.012 260);
+    --bg-3: oklch(0.24 0.014 260);
+    --border: oklch(0.32 0.015 260);
+    --border-strong: oklch(0.42 0.02 260);
+    --text: oklch(0.93 0.005 260);
+    --text-dim: oklch(0.70 0.01 260);
+    --text-faint: oklch(0.55 0.01 260);
+    --accent: oklch(0.80 0.13 200);
+    --accent-2: oklch(0.70 0.15 220);
+    --critical: oklch(0.68 0.21 25);
+    --warning: oklch(0.78 0.15 75);
+    --healthy: oklch(0.75 0.15 155);
+    --gemini: oklch(0.75 0.15 265);
+    --radius: 12px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── i18n visibility ── */
+  html[data-lang="ko"] .i18n-en,
+  html[data-lang="en"] .i18n-ko { display: none !important; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Nav ── */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(0.16 0.01 260 / 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 1080px; margin: 0 auto; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
+  .logo:hover { text-decoration: none; }
+  .logo-mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--gemini));
+    display: grid; place-items: center; font-size: 15px;
+  }
+  .logo small { display: block; font-size: 10px; font-weight: 500; color: var(--text-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+  .nav-links { display: flex; gap: 22px; font-size: 14px; }
+  .nav-links a { color: var(--text-dim); }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+  .nav-cta {
+    font-size: 13px; font-weight: 600; padding: 8px 16px;
+    background: var(--accent); color: oklch(0.18 0.03 220) !important;
+    border-radius: 8px;
+  }
+  .nav-cta:hover { filter: brightness(1.1); text-decoration: none; }
+
+  /* ── Language switch ── */
+  .lang-switch {
+    display: flex; gap: 3px; padding: 3px;
+    background: var(--bg-2); border: 1px solid var(--border-strong); border-radius: 8px;
+  }
+  .lang-switch button {
+    font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 5px 10px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--text-faint); cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .lang-switch button:hover { color: var(--text); }
+  .lang-switch button.active { background: var(--accent); color: oklch(0.18 0.03 220); }
+
+  /* ── Hero ── */
+  .hero { padding: 88px 0 56px; text-align: center; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: -40% -20% auto;
+    height: 480px; pointer-events: none;
+    background:
+      radial-gradient(600px 300px at 30% 20%, oklch(0.55 0.15 220 / 0.16), transparent 70%),
+      radial-gradient(500px 280px at 70% 10%, oklch(0.60 0.15 265 / 0.14), transparent 70%);
+  }
+  .hero > * { position: relative; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 26px; }
+  .badge {
+    font-family: var(--mono); font-size: 11.5px; padding: 5px 11px;
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    color: var(--text-dim); background: var(--bg-2);
+  }
+  .badge b { color: var(--accent); font-weight: 600; }
+  h1 {
+    font-size: clamp(34px, 5.5vw, 56px); line-height: 1.15;
+    letter-spacing: -0.03em; font-weight: 800; margin-bottom: 20px;
+  }
+  h1 .grad {
+    background: linear-gradient(100deg, var(--accent), var(--gemini) 55%, oklch(0.80 0.14 300));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lead {
+    font-size: clamp(16px, 2vw, 19px); color: var(--text-dim);
+    max-width: 720px; margin: 0 auto 34px;
+  }
+  .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; padding: 13px 26px;
+    border-radius: 10px; border: 1px solid transparent; cursor: pointer;
+  }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn-primary { background: var(--accent); color: oklch(0.18 0.03 220); }
+  .btn-ghost { background: var(--bg-2); border-color: var(--border-strong); color: var(--text); }
+
+  /* ── Sections ── */
+  section { padding: 64px 0; }
+  .sec-label {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+  }
+  h2 { font-size: clamp(26px, 3.5vw, 34px); letter-spacing: -0.02em; font-weight: 750; margin-bottom: 14px; }
+  .sec-sub { color: var(--text-dim); max-width: 680px; margin-bottom: 40px; font-size: 16px; }
+
+  /* ── Feature grid ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .card .icon {
+    width: 40px; height: 40px; border-radius: 10px; font-size: 19px;
+    display: grid; place-items: center; margin-bottom: 14px;
+    background: var(--bg-3); border: 1px solid var(--border-strong);
+  }
+  .card h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 7px; letter-spacing: -0.01em; }
+  .card p { font-size: 14px; color: var(--text-dim); }
+
+  /* ── Impact demo ── */
+  .impact-demo {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;
+  }
+  .impact-item { padding: 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+  .impact-item .lvl { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .impact-item .name { font-family: var(--mono); font-size: 13.5px; color: var(--text); word-break: break-all; }
+  .impact-item .desc { font-size: 12px; color: var(--text-faint); margin-top: 5px; }
+  .lvl-critical { color: var(--critical); }
+  .lvl-direct { color: var(--warning); }
+  .lvl-indirect { color: oklch(0.80 0.13 95); }
+  .lvl-none { color: var(--text-faint); }
+  .impact-item.critical { border-color: var(--critical); background: oklch(0.68 0.21 25 / 0.08); animation: pulse 2s infinite; }
+  .impact-item.direct { border-color: oklch(0.78 0.15 75 / 0.6); background: oklch(0.78 0.15 75 / 0.06); }
+  .impact-item.indirect { border-style: dashed; border-color: oklch(0.78 0.15 75 / 0.4); background: oklch(0.78 0.15 75 / 0.04); }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 oklch(0.68 0.21 25 / 0.35); } 50% { box-shadow: 0 0 0 6px oklch(0.68 0.21 25 / 0); } }
+
+  /* ── Architecture ── */
+  .arch {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 32px 24px;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.9;
+    overflow-x: auto; color: var(--text-dim);
+  }
+  .arch b { color: var(--accent); font-weight: 600; }
+  .arch .g { color: var(--gemini); }
+  .arch .y { color: var(--warning); }
+  .arch .r { color: var(--critical); }
+  .arch .g2 { color: var(--healthy); }
+
+  /* ── Google tech ── */
+  .google-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .gcard {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+    border-top: 3px solid var(--gemini);
+  }
+  .gcard h3 { font-size: 15.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .gcard h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gemini); }
+  .gcard p { font-size: 13.5px; color: var(--text-dim); }
+
+  /* ── Screenshots ── */
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .shot {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; background: var(--bg-2); display: block;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .shot:hover { border-color: var(--border-strong); transform: translateY(-2px); text-decoration: none; }
+  .shot img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; object-position: top; }
+  .shot .cap { padding: 12px 16px; font-size: 13.5px; color: var(--text-dim); border-top: 1px solid var(--border); }
+
+  /* ── API table ── */
+  .tbl-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; background: var(--bg-2); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); background: var(--bg-3); }
+  tr:last-child td { border-bottom: none; }
+  td code, .mono { font-family: var(--mono); font-size: 13px; }
+  .method {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 5px;
+  }
+  .method.get { background: oklch(0.75 0.15 155 / 0.15); color: var(--healthy); }
+  .method.post { background: oklch(0.75 0.15 265 / 0.15); color: var(--gemini); }
+
+  /* ── Safety ── */
+  .safety { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .safety div {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; font-size: 14px; color: var(--text-dim);
+  }
+  .safety div span:first-child { color: var(--healthy); font-weight: 700; }
+
+  /* ── Stack ── */
+  .stack { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip {
+    font-family: var(--mono); font-size: 13px; padding: 8px 14px;
+    background: var(--bg-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; color: var(--text-dim);
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+
+  /* ── CTA ── */
+  .final-cta {
+    text-align: center; padding: 56px 32px;
+    background: linear-gradient(160deg, var(--bg-2), var(--bg-3));
+    border: 1px solid var(--border-strong); border-radius: 16px;
+  }
+  .final-cta h2 { margin-bottom: 10px; }
+  .final-cta p { color: var(--text-dim); margin-bottom: 28px; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0 48px; margin-top: 40px;
+    font-size: 13.5px; color: var(--text-faint);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }
+
+  /* ── Lucide (shadcn/ui) inline icons ── */
+  .ico { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+  .ico svg { width: 1em; height: 1em; }
+  .logo-mark { color: #fff; }
+  .logo-mark .ico svg { width: 17px; height: 17px; }
+  .card .icon .ico svg { width: 20px; height: 20px; }
+  footer .ico svg { width: 14px; height: 14px; }
+
+  /* ── Architecture flow diagram ── */
+  .arch2 { display: flex; flex-direction: column; align-items: center; font-size: 14px; }
+  .arch2-node {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border: 1px solid var(--border-strong); border-radius: 10px;
+    background: var(--bg-3); color: var(--text); font-family: var(--mono); font-size: 13px;
+  }
+  .arch2-node .ico { color: var(--accent); }
+  .arch2-node .ico svg { width: 16px; height: 16px; }
+  .arch2-node b { font-weight: 700; }
+  .arch2-note { color: var(--text-faint); font-size: 12px; }
+  .arch2-vlink { display: flex; flex-direction: column; align-items: center; }
+  .arch2-vline { width: 2px; height: 16px; background: var(--border-strong); }
+  .arch2-vlink .ico { color: var(--accent); }
+  .arch2-vlink .ico svg { width: 18px; height: 18px; }
+  .arch2-vlabel {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-faint);
+    padding: 3px 8px;
+  }
+  .arch2-vlabel .ico { color: var(--healthy); }
+  .arch2-vlabel .ico svg { width: 13px; height: 13px; }
+  .arch2-box {
+    width: 100%; position: relative; margin-top: 8px;
+    border: 1px solid var(--border-strong); border-radius: 14px;
+    background: var(--bg-2); padding: 26px 20px 0;
+  }
+  .arch2-badge {
+    position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+    white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: 999px;
+    padding: 4px 14px; font-family: var(--mono); font-size: 12px; color: var(--accent);
+  }
+  .arch2-badge .ico svg { width: 13px; height: 13px; }
+  .arch2-pipeline { display: flex; align-items: stretch; justify-content: center; gap: 8px; }
+  .arch2-stage {
+    flex: 1 1 0; max-width: 270px; min-width: 0;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 14px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+  }
+  .arch2-ic {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: grid; place-items: center;
+    background: var(--bg-3); border: 1px solid var(--border-strong); color: var(--accent);
+  }
+  .arch2-ic .ico svg { width: 19px; height: 19px; }
+  .arch2-ic.gemini { color: var(--gemini); }
+  .arch2-title { font-weight: 700; font-size: 14.5px; color: var(--text); word-break: keep-all; }
+  .arch2-title .gem { color: var(--gemini); }
+  .arch2-sub { font-size: 12px; color: var(--text-faint); word-break: keep-all; }
+  .arch2-out {
+    margin-top: auto; width: 100%;
+    display: flex; gap: 6px; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+    background: var(--bg-2); border: 1px dashed var(--border-strong);
+    border-radius: 8px; padding: 6px 8px; word-break: break-word;
+  }
+  .arch2-out .ico { color: var(--warning); flex: none; }
+  .arch2-out .ico svg { width: 13px; height: 13px; }
+  .arch2-arrow { display: grid; place-items: center; color: var(--accent); }
+  .arch2-arrow .ico svg { width: 20px; height: 20px; }
+  .arch2-conn { display: flex; justify-content: center; padding: 10px 0 4px; color: var(--accent); }
+  .arch2-conn .ico svg { width: 17px; height: 17px; }
+  .arch2-serving {
+    margin-top: 6px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--bg); overflow: hidden;
+  }
+  .arch2-srv-row {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 11px 14px; font-size: 13.5px; color: var(--text-dim);
+  }
+  .arch2-srv-row + .arch2-srv-row { border-top: 1px solid var(--border); }
+  .arch2-srv-key {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 13px; color: var(--text);
+  }
+  .arch2-srv-key .ico { color: var(--healthy); }
+  .arch2-srv-key .ico svg { width: 15px; height: 15px; }
+  .arch2-chip {
+    font-family: var(--mono); font-size: 11.5px; padding: 3px 9px;
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    color: var(--text-dim); background: var(--bg-2);
+  }
+  .arch2-secrets {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center;
+    padding: 13px 14px; margin-top: 14px; border-top: 1px dashed var(--border-strong);
+    font-family: var(--mono); font-size: 12.5px; color: var(--text-dim);
+  }
+  .arch2-secrets .ico { color: var(--critical); }
+  .arch2-secrets .ico svg { width: 14px; height: 14px; }
+  .arch2-secrets .ico.key { color: var(--gemini); }
+  .arch2-secrets b { color: var(--gemini); }
+  .arch2-tag { font-size: 10.5px; padding: 2px 7px; border-radius: 5px; font-weight: 700; letter-spacing: 0.05em; }
+  .arch2-tag.mount { background: oklch(0.78 0.15 75 / 0.15); color: var(--warning); }
+  .arch2-tag.env { background: oklch(0.75 0.15 265 / 0.15); color: var(--gemini); }
+  .arch2-sep { color: var(--text-faint); }
+
+  @media (max-width: 720px) {
+    .nav-links { display: none; }
+    .hero { padding: 60px 0 40px; }
+    section { padding: 48px 0; }
+    .arch2-pipeline { flex-direction: column; align-items: center; }
+    .arch2-stage { max-width: 100%; width: 100%; }
+    .arch2-arrow { transform: rotate(90deg); }
+    .arch2-badge { font-size: 11px; padding: 3px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="logo" href="#">
+      <span class="logo-mark"><span class="icoico"><svg class="lucide lucide-dna" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m10 16 1.5 1.5" /> <path d="m14 8-1.5-1.5" /> <path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993" /> <path d="m16.5 10.5 1 1" /> <path d="m17 6-2.891-2.891" /> <path d="M2 15c6.667-6 13.333 0 20-6" /> <path d="m20 9 .891.891" /> <path d="M3.109 14.109 4 15" /> <path d="m6.5 12.5 1 1" /> <path d="m7 18 2.891 2.891" /> <path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993" /> </svg></span></span>
+      <span>ClusterMind<small>digital twin</small></span>
+    </a>
+    <div class="nav-links">
+      <a href="#features" class="i18n-ko">기능</a>
+      <a href="#features" class="i18n-en">Features</a>
+      <a href="#impact" class="i18n-ko">장애 시뮬레이션</a>
+      <a href="#impact" class="i18n-en">Failure Simulation</a>
+      <a href="#arch" class="i18n-ko">아키텍처</a>
+      <a href="#arch" class="i18n-en">Architecture</a>
+      <a href="#google">Google Cloud</a>
+      <a href="#api">API</a>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="lang-switch" role="group" aria-label="Language / 언어">
+        <button type="button" data-lang-btn="ko">한</button>
+        <button type="button" data-lang-btn="en" class="active">EN</button>
+      </div>
+      <a class="nav-cta" href="https://github.com/AIBuilderCup-ClusterMind/ClusterMind" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero ───────────────────────────────────────────── -->
+<header class="hero">
+  <div class="wrap">
+    <div class="badge-row">
+      <span class="badge"><b>Go 1.24</b> + Gin</span>
+      <span class="badge"><b>Gemini</b> via google.golang.org/genai</span>
+      <span class="badge"><b>React Flow</b> v12</span>
+      <span class="badge">Deployed on <b>Cloud Run</b></span>
+    </div>
+    <h1 class="i18n-ko">Kubernetes 클러스터를<br /><span class="grad">AI 디지털 트윈</span>으로</h1>
+    <h1 class="i18n-en">Turn Your Kubernetes<br />Cluster into an <span class="grad">AI Digital Twin</span></h1>
+    <p class="lead i18n-ko">
+      실시간으로 클러스터 리소스를 수집해 <strong>구조도</strong>, <strong>의존성 그래프</strong>,
+      <strong>장애 영향 범위</strong>를 자동 생성합니다. 특정 서비스가 장애가 났을 때
+      어디까지 전파되는지 BFS 그래프 탐색과 Gemini 추론으로 즉시 시각화합니다.
+    </p>
+    <p class="lead i18n-en">
+      ClusterMind collects cluster resources in real time and automatically generates
+      <strong>topology maps</strong>, <strong>dependency graphs</strong>, and <strong>failure blast radii</strong>.
+      When a service fails, BFS graph traversal and Gemini reasoning instantly visualize how far the impact propagates.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#impact"><span class="i18n-ko">장애 시뮬레이션 보기 ↓</span><span class="i18n-en">See the failure simulation ↓</span></a>
+      <a class="btn btn-ghost" href="https://github.com/AIBuilderCup-ClusterMind/ClusterMind" target="_blank" rel="noopener"><span class="i18n-ko">소스 코드 ↗</span><span class="i18n-en">Source Code ↗</span></a>
+    </div>
+  </div>
+</header>
+
+<!-- ── Features ───────────────────────────────────────── -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-label">Key Features</div>
+    <h2 class="i18n-ko">읽기 전용 수집, 자동 그래프 추론, AI 장애 분석</h2>
+    <h2 class="i18n-en">Read-only collection, automatic graph inference, AI failure analysis</h2>
+    <p class="sec-sub i18n-ko">클러스터에 아무것도 쓰지 않습니다. 모든 작업은 엄격한 read-only이며, Secret 값은 수집 즉시 폐기됩니다.</p>
+    <p class="sec-sub i18n-en">ClusterMind never writes to the cluster. Everything is strictly read-only, and Secret values are discarded the moment they are collected.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-search" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg></span></div>
+        <h3 class="i18n-ko">Read-Only 리소스 수집</h3>
+        <h3 class="i18n-en">Read-Only Resource Collection</h3>
+        <p class="i18n-ko">client-go로 Pod · Service · Deployment · Ingress · HPA · NetworkPolicy · ConfigMap를 수집합니다. Secret.Data는 수집 즉시 nil로 폐기되어 응답·로그에 절대 노출되지 않습니다.</p>
+        <p class="i18n-en">Collects Pods · Services · Deployments · Ingresses · HPAs · NetworkPolicies · ConfigMaps via client-go. Secret.Data is discarded as nil immediately, so it never appears in responses or logs.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-network" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg></span></div>
+        <h3 class="i18n-ko">자동 의존성 그래프</h3>
+        <h3 class="i18n-en">Automatic Dependency Graph</h3>
+        <p class="i18n-ko">Label Selector · Ingress backend · HPA 타겟 · ConfigMap 마운트 · Env URL 참조를 매칭해 edge를 추론하고, 각 edge에 confidence(0~1)를 부여합니다. 0.3 미만은 기본 제외.</p>
+        <p class="i18n-en">Infers edges by matching Label Selectors · Ingress backends · HPA targets · ConfigMap mounts · Env URL references, scoring each edge with confidence (0–1). Edges below 0.3 are excluded by default.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-radar" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" /> <path d="M4 6h.01" /> <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" /> <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" /> <path d="M12 18h.01" /> <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" /> <circle cx="12" cy="12" r="2" /> <path d="m13.41 10.59 5.66-5.66" /> </svg></span></div>
+        <h3 class="i18n-ko">AI 장애 영향 범위 분석</h3>
+        <h3 class="i18n-en">AI Failure Impact Analysis</h3>
+        <p class="i18n-ko">BFS 그래프 탐색(깊이 ≤ 5) 결과를 Gemini에 전달해 전파 경로·비즈니스 영향·심각도(critical/high/medium/low)를 추론합니다. LLM 미사용 시 결정적 fallback.</p>
+        <p class="i18n-en">BFS graph traversal (depth ≤ 5) results are fed to Gemini to reason about propagation paths, business impact, and severity (critical/high/medium/low). Deterministic fallback when the LLM is unavailable.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-workflow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg></span></div>
+        <h3 class="i18n-ko">인터랙티브 React Flow 그래프</h3>
+        <h3 class="i18n-en">Interactive React Flow Graph</h3>
+        <p class="i18n-ko">드래그 · 줌 · 미니맵을 지원하는 실시간 캔버스. 장애 원점은 빨간 펄스, 직접 영향은 주황, 간접 영향은 노란 점선으로 색상 인코딩됩니다.</p>
+        <p class="i18n-en">A real-time canvas with drag, zoom, and minimap. Failure origins pulse red, direct impacts turn orange, and indirect impacts get yellow dashed outlines.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-siren" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 18v-6a5 5 0 1 1 10 0v6" /> <path d="M5 21a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2z" /> <path d="M21 12h1" /> <path d="M18.5 4.5 18 5" /> <path d="M2 12h1" /> <path d="M12 2v1" /> <path d="m4.929 4.929.707.707" /> <path d="M12 12v6" /> </svg></span></div>
+        <h3 class="i18n-ko">인시던트 파생 + AI 조사</h3>
+        <h3 class="i18n-en">Incident Derivation + AI Investigation</h3>
+        <p class="i18n-ko">K8s Events와 리소스 health에서 인시던트를 자동 파생하고, 타임라인 근거와 함께 Gemini 기반 루트케이스 조사 리포트(summary · 원인 · 다음 점검)를 생성합니다.</p>
+        <p class="i18n-en">Automatically derives incidents from K8s events and resource health, and generates Gemini-powered root-cause investigation reports (summary · causes · next checks) backed by timeline evidence.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><span class="icoico"><svg class="lucide lucide-activity" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg></span></div>
+        <h3 class="i18n-ko">네임스페이스 상태 롤업</h3>
+        <h3 class="i18n-en">Namespace Status Rollup</h3>
+        <p class="i18n-ko">네임스페이스별 Healthy / Degraded / Warning 상태 요약과 리소스별 ready 비율·사유를 제공합니다. 노드 클릭 시 상·하류 의존성 패널과 원클릭 영향 분석.</p>
+        <p class="i18n-en">Per-namespace Healthy / Degraded / Warning rollups with per-resource ready ratios and reasons. Click a node for upstream/downstream dependencies and one-click impact analysis.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Impact simulation ──────────────────────────────── -->
+<section id="impact">
+  <div class="wrap">
+    <div class="sec-label">Demo · payment-svc failure simulation</div>
+    <h2 class="i18n-ko">장애가 시작되면 영향 범위가 그래프에 즉시 번집니다</h2>
+    <h2 class="i18n-en">When a failure starts, the blast radius spreads across the graph instantly</h2>
+    <p class="sec-sub i18n-ko">
+      <code class="mono">POST /api/v1/impact</code> — <code class="mono">Service/demo/payment-svc</code> 장애 시
+      BFS 탐색 + Gemini 추론 결과가 컬러 하이라이트로 렌더링됩니다.
+    </p>
+    <p class="sec-sub i18n-en">
+      <code class="mono">POST /api/v1/impact</code> — When <code class="mono">Service/demo/payment-svc</code> fails,
+      BFS traversal + Gemini reasoning results are rendered with color highlights.
+    </p>
+    <div class="impact-demo">
+      <div class="impact-item critical">
+        <div class="lvl lvl-critical"><span class="i18n-ko">● CRITICAL — 장애 원점</span><span class="i18n-en">● CRITICAL — failure origin</span></div>
+        <div class="name">payment-svc</div>
+        <div class="desc"><span class="i18n-ko">장애 발생 리소스 (펄스 애니메이션)</span><span class="i18n-en">Failed resource (pulse animation)</span></div>
+      </div>
+      <div class="impact-item direct">
+        <div class="lvl lvl-direct">▲ DIRECT — depth 1</div>
+        <div class="name">checkout-deployment</div>
+        <div class="desc"><span class="i18n-ko">직접 영향 · 주황 + 애니메이션 엣지</span><span class="i18n-en">Direct impact · orange + animated edge</span></div>
+      </div>
+      <div class="impact-item indirect">
+        <div class="lvl lvl-indirect">△ INDIRECT — depth 2+</div>
+        <div class="name">order-svc</div>
+        <div class="desc"><span class="i18n-ko">간접 영향 · 노란 점선 테두리</span><span class="i18n-en">Indirect impact · yellow dashed border</span></div>
+      </div>
+      <div class="impact-item indirect">
+        <div class="lvl lvl-indirect">△ INDIRECT — depth 2+</div>
+        <div class="name">notification-svc</div>
+        <div class="desc"><span class="i18n-ko">간접 영향 · 결제 완료 알림 중단</span><span class="i18n-en">Indirect impact · payment alerts halted</span></div>
+      </div>
+      <div class="impact-item">
+        <div class="lvl lvl-none">○ UNAFFECTED</div>
+        <div class="name">frontend-svc</div>
+        <div class="desc"><span class="i18n-ko">미영향 · 기본 색상 유지</span><span class="i18n-en">Unaffected · default color preserved</span></div>
+      </div>
+    </div>
+    <p class="sec-sub i18n-ko" style="margin-top: 24px; margin-bottom: 0;">
+      AI 생성 설명 예시 — <em style="color: var(--text);">
+        “payment-svc 장애 시 checkout-deployment의 결제 API 호출이 실패해 주문 완료가 불가능해집니다.
+        이로 인해 order-svc의 주문 상태 업데이트와 notification-svc의 결제 완료 알림이 연쇄 중단됩니다.”
+      </em> · <span class="mono" style="color: var(--critical); font-size: 13px;">severity: CRITICAL</span>
+    </p>
+    <p class="sec-sub i18n-en" style="margin-top: 24px; margin-bottom: 0;">
+      Sample AI-generated explanation — <em style="color: var(--text);">
+        “When payment-svc fails, checkout-deployment's payment API calls fail, making order completion impossible.
+        As a result, order-svc's order status updates and notification-svc's payment confirmation alerts are cascaded into failure.”
+      </em> · <span class="mono" style="color: var(--critical); font-size: 13px;">severity: CRITICAL</span>
+    </p>
+  </div>
+</section>
+
+<!-- ── Screenshots ────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="sec-label">Screenshots</div>
+    <h2 class="i18n-ko">실제 동작 화면</h2>
+    <h2 class="i18n-en">The product in action</h2>
+    <p class="sec-sub i18n-ko">Topology · Incidents · Investigation 뷰 — 이 페이지와 동일한 다크 테마로 동작합니다.</p>
+    <p class="sec-sub i18n-en">Topology · Incidents · Investigation views — running in the same dark theme as this page.</p>
+    <div class="shots">
+      <a class="shot" href="screenshotclip/lustermindScreenshot1.png" target="_blank">
+        <img src="screenshotclip/lustermindScreenshot1.png" alt="ClusterMind Topology view" loading="lazy" />
+        <div class="cap"><span class="i18n-ko">① Topology — 인터랙티브 클러스터 그래프 + 네임스페이스 패널</span><span class="i18n-en">① Topology — interactive cluster graph + namespace panel</span></div>
+      </a>
+      <a class="shot" href="screenshotclip/lustermindScreenshot2.png" target="_blank">
+        <img src="screenshotclip/lustermindScreenshot2.png" alt="ClusterMind failure impact analysis" loading="lazy" />
+        <div class="cap"><span class="i18n-ko">② Impact — 장애 영향 범위 하이라이트 + AI 설명</span><span class="i18n-en">② Impact — blast-radius highlighting + AI explanation</span></div>
+      </a>
+      <a class="shot" href="screenshotclip/lustermindScreenshot3.png" target="_blank">
+        <img src="screenshotclip/lustermindScreenshot3.png" alt="ClusterMind Incidents view" loading="lazy" />
+        <div class="cap"><span class="i18n-ko">③ Incidents — 이벤트 타임라인 + 자동 영향 분석</span><span class="i18n-en">③ Incidents — event timeline + automatic impact analysis</span></div>
+      </a>
+      <a class="shot" href="screenshotclip/lustermindScreenshot4.png" target="_blank">
+        <img src="screenshotclip/lustermindScreenshot4.png" alt="ClusterMind Investigation report" loading="lazy" />
+        <div class="cap"><span class="i18n-ko">④ Investigation — Gemini 루트케이스 조사 리포트</span><span class="i18n-en">④ Investigation — Gemini root-cause investigation report</span></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Architecture ───────────────────────────────────── -->
+<section id="arch">
+  <div class="wrap">
+    <div class="sec-label">Architecture</div>
+    <h2 class="i18n-ko">단일 컨테이너 · 단일 서비스</h2>
+    <h2 class="i18n-en">Single container · single service</h2>
+    <p class="sec-sub i18n-ko">
+      React 프론트엔드를 Go 바이너리에 <code class="mono">go:embed</code>로 내장해
+      API와 UI를 하나의 distroless 컨테이너로 서빙합니다. Cloud Run은 이 컨테이너 하나만 띄우면 됩니다.
+    </p>
+    <p class="sec-sub i18n-en">
+      The React frontend is embedded into the Go binary via <code class="mono">go:embed</code>, so the
+      API and UI are served from one distroless container. Cloud Run only needs to run this one container.
+    </p>
+    <div class="arch2">
+      <div class="arch2-node arch2-gke">
+        <span class="icoico"><svg class="lucide lucide-cloud" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /> </svg></span>
+        <b>Remote GKE cluster</b>
+        <span class="arch2-note"><span class="i18n-ko">전용 demo 네임스페이스</span><span class="i18n-en">dedicated demo namespace</span></span>
+      </div>
+      <div class="arch2-vlink">
+        <span class="arch2-vline"></span>
+        <span class="icoico"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /> </svg></span>
+        <span class="arch2-vlabel"><span class="icoico"><svg class="lucide lucide-eye" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" /> </svg></span> read-only &middot; <span class="i18n-ko">네임스페이스 scoped Role</span><span class="i18n-en">namespace-scoped Role</span></span>
+        <span class="arch2-vline"></span>
+      </div>
+      <div class="arch2-box">
+        <div class="arch2-badge"><span class="icoico"><svg class="lucide lucide-cloud" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /> </svg></span> Cloud Run &mdash; <span class="i18n-ko">단일 컨테이너</span><span class="i18n-en">single container</span></div>
+        <div class="arch2-pipeline">
+          <div class="arch2-stage">
+            <div class="arch2-ic"><span class="icoico"><svg class="lucide lucide-server" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="20" height="8" x="2" y="2" rx="2" ry="2" /> <rect width="20" height="8" x="2" y="14" rx="2" ry="2" /> <line x1="6" x2="6.01" y1="6" y2="6" /> <line x1="6" x2="6.01" y1="18" y2="18" /> </svg></span></div>
+            <div class="arch2-title">K8s Probe</div>
+            <div class="arch2-sub">client-go</div>
+            <div class="arch2-out"><span class="icoico"><svg class="lucide lucide-database" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <ellipse cx="12" cy="5" rx="9" ry="3" /> <path d="M3 5V19A9 3 0 0 0 21 19V5" /> <path d="M3 12A9 3 0 0 0 21 12" /> </svg></span> ClusterSnapshot</div>
+          </div>
+          <div class="arch2-arrow"><span class="icoico"><svg class="lucide lucide-arrow-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span></div>
+          <div class="arch2-stage">
+            <div class="arch2-ic"><span class="icoico"><svg class="lucide lucide-share-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="5" r="3" /> <circle cx="6" cy="12" r="3" /> <circle cx="18" cy="19" r="3" /> <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" /> <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" /> </svg></span></div>
+            <div class="arch2-title">Graph Builder</div>
+            <div class="arch2-sub i18n-ko">edge 추론</div>
+            <div class="arch2-sub i18n-en">edge inference</div>
+            <div class="arch2-out"><span class="icoico"><svg class="lucide lucide-git-fork" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <circle cx="18" cy="6" r="3" /> <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" /> <path d="M12 12v3" /> </svg></span> DependencyGraph</div>
+          </div>
+          <div class="arch2-arrow"><span class="icoico"><svg class="lucide lucide-arrow-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span></div>
+          <div class="arch2-stage">
+            <div class="arch2-ic gemini"><span class="icoico"><svg class="lucide lucide-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /> <path d="M20 2v4" /> <path d="M22 4h-4" /> <circle cx="4" cy="20" r="2" /> </svg></span></div>
+            <div class="arch2-title">AI Engine &middot; <span class="gem">Gemini</span></div>
+            <div class="arch2-sub i18n-ko">영향 추론 &middot; 인시던트 조사</div>
+            <div class="arch2-sub i18n-en">impact reasoning &middot; investigation</div>
+            <div class="arch2-out"><span class="icoico"><svg class="lucide lucide-crosshair" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="22" x2="18" y1="12" y2="12" /> <line x1="6" x2="2" y1="12" y2="12" /> <line x1="12" x2="12" y1="6" y2="2" /> <line x1="12" x2="12" y1="22" y2="18" /> </svg></span> ImpactResult / InvestigationResult</div>
+          </div>
+        </div>
+        <div class="arch2-conn"><span class="icoico"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /> </svg></span></div>
+        <div class="arch2-serving">
+          <div class="arch2-srv-row">
+            <span class="arch2-srv-key"><span class="icoico"><svg class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /> </svg></span><b>REST API</b> (Gin &middot; :$PORT)</span>
+            <span class="arch2-chip">/api/v1/*</span>
+            <span class="arch2-chip">/health</span>
+          </div>
+          <div class="arch2-srv-row">
+            <span class="arch2-srv-key"><span class="icoico"><svg class="lucide lucide-monitor" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" /> </svg></span><span class="i18n-ko">SPA 서빙</span><span class="i18n-en">SPA serving</span></span>
+            <span class="arch2-chip">go:embed web/dist &rarr; NoRoute fallback</span>
+          </div>
+        </div>
+        <div class="arch2-secrets">
+          <span class="icoico"><svg class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /> </svg></span> kubeconfig <span class="arch2-tag mount">volume mount</span>
+          <span class="arch2-sep">&middot;</span>
+          <span class="icoico"><svg class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /> </svg></span> GEMINI_API_KEY <span class="arch2-tag env">env</span>
+          <span class="arch2-sep">&larr;</span>
+          <span class="icoico key"><svg class="lucide lucide-key-round" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /> <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /> </svg></span> <b>Secret Manager</b>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Google Cloud ───────────────────────────────────── -->
+<section id="google">
+  <div class="wrap">
+    <div class="sec-label">How we leverage Google Cloud</div>
+    <h2>Gemini · Cloud Run · GKE · Secret Manager</h2>
+    <p class="sec-sub i18n-ko">AI Builder Cup 제출 규칙에 맞춰 Google Cloud 기술을 다음과 같이 활용합니다.</p>
+    <p class="sec-sub i18n-en">How we leverage Google Cloud technologies, per the AI Builder Cup submission rules.</p>
+    <div class="google-grid">
+      <div class="gcard">
+        <h3><span class="dot"></span>Gemini</h3>
+        <p class="i18n-ko"><code class="mono">google.golang.org/genai</code> SDK로 장애 영향 분석과 인시던트 조사 리포트를 생성합니다. 구조화된 JSON 프롬프트를 요청하고, 오프라인 시 결정적 fallback으로 강등됩니다.</p>
+        <p class="i18n-en">Generates failure impact analysis and incident investigation reports via the <code class="mono">google.golang.org/genai</code> SDK. Requests structured JSON prompts and degrades to a deterministic fallback when offline.</p>
+      </div>
+      <div class="gcard">
+        <h3><span class="dot"></span>Cloud Run</h3>
+        <p class="i18n-ko">Cloud Build로 소스 빌드해 distroless 컨테이너를 배포합니다. <code class="mono">$PORT</code> 동적 바인딩, min-instances 0 → 유휴시 과금 0, 시크릿 볼륨 마운트를 지원합니다.</p>
+        <p class="i18n-en">Builds the source with Cloud Build and deploys a distroless container. Supports dynamic <code class="mono">$PORT</code> binding, min-instances 0 → zero idle cost, and secret volume mounts.</p>
+      </div>
+      <div class="gcard">
+        <h3><span class="dot"></span>GKE</h3>
+        <p class="i18n-ko">명시적으로 지정한 원격 GKE 클러스터의 전용 네임스페이스만 접근합니다. 네임스페이스 scoped read-only Role과 서비스 아이덴티티 기반 인증으로 최소 권한을 보장합니다.</p>
+        <p class="i18n-en">Accesses only the dedicated namespace of an explicitly specified remote GKE cluster. Namespace-scoped read-only Roles and service-identity authentication guarantee least privilege.</p>
+      </div>
+      <div class="gcard">
+        <h3><span class="dot"></span>Secret Manager</h3>
+        <p class="i18n-ko">컨테이너용 kubeconfig와 <code class="mono">GEMINI_API_KEY</code>를 Secret Manager에 보관하고 Cloud Run 런타임 SA만 접근하도록 IAM을 제한합니다. 시크릿은 소스에 존재하지 않습니다.</p>
+        <p class="i18n-en">Stores the container kubeconfig and <code class="mono">GEMINI_API_KEY</code> in Secret Manager, restricting access to the Cloud Run runtime SA only. Secrets never exist in the source.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── API ────────────────────────────────────────────── -->
+<section id="api">
+  <div class="wrap">
+    <div class="sec-label">REST API</div>
+    <h2 class="i18n-ko">Gin 기반 엔드포인트</h2>
+    <h2 class="i18n-en">Gin-powered endpoints</h2>
+    <p class="sec-sub i18n-ko">CLI(<code class="mono">serve</code> · <code class="mono">analyze</code> · <code class="mono">impact</code>)와 동일한 서버가 REST API를 제공합니다.</p>
+    <p class="sec-sub i18n-en">The same server behind the CLI (<code class="mono">serve</code> · <code class="mono">analyze</code> · <code class="mono">impact</code>) serves the REST API.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span></td><td><code>/api/v1/twin/snapshot</code></td><td><span class="i18n-ko">디지털 트윈 스냅샷 (노드 status/metrics + edges + incidents)</span><span class="i18n-en">Digital twin snapshot (node status/metrics + edges + incidents)</span></td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/api/v1/cluster/graph</code></td><td>React Flow nodes + edges JSON</td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/api/v1/namespaces</code></td><td><span class="i18n-ko">네임스페이스별 리소스 카운트/상태 집계</span><span class="i18n-en">Per-namespace resource counts / status rollup</span></td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/api/v1/impact</code></td><td><span class="i18n-ko">장애 영향 범위 분석 (BFS + Gemini)</span><span class="i18n-en">Failure blast-radius analysis (BFS + Gemini)</span></td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/api/v1/investigate</code></td><td><span class="i18n-ko">인시던트 루트케이스 조사 리포트</span><span class="i18n-en">Incident root-cause investigation report</span></td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/api/v1/watch</code></td><td><span class="i18n-ko">SSE 실시간 클러스터 변경 스트림</span><span class="i18n-en">SSE live cluster change stream</span></td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/health</code></td><td><span class="i18n-ko">헬스체크</span><span class="i18n-en">Health check</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Safety ─────────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="sec-label">Safety &amp; Design Principles</div>
+    <h2 class="i18n-ko">엔터프라이즈 신뢰성을 위한 설계 원칙</h2>
+    <h2 class="i18n-en">Design principles for enterprise reliability</h2>
+    <div class="safety">
+      <div><span>✓</span><span class="i18n-ko"><strong>Read-Only</strong> — 클러스터에 아무것도 쓰지 않습니다</span><span class="i18n-en"><strong>Read-Only</strong> — ClusterMind never writes to the cluster</span></div>
+      <div><span>✓</span><span class="i18n-ko"><strong>Zero Secret Collection</strong> — K8s Secret 값은 수집 즉시 폐기</span><span class="i18n-en"><strong>Zero Secret Collection</strong> — K8s Secret values are discarded on collection</span></div>
+      <div><span>✓</span><span class="i18n-ko"><strong>Least-Privilege RBAC</strong> — 네임스페이스 scoped Role + 단기 토큰</span><span class="i18n-en"><strong>Least-Privilege RBAC</strong> — namespace-scoped Role + short-lived tokens</span></div>
+      <div><span>✓</span><span class="i18n-ko"><strong>Confidence filtering</strong> — confidence &lt; 0.3 edge 제외</span><span class="i18n-en"><strong>Confidence filtering</strong> — edges with confidence &lt; 0.3 are excluded</span></div>
+      <div><span>✓</span><span class="i18n-ko"><strong>BFS depth limit</strong> — 5 hop 상한으로 순환 의존 방어</span><span class="i18n-en"><strong>BFS depth limit</strong> — 5-hop cap guards against cyclic dependencies</span></div>
+      <div><span>✓</span><span class="i18n-ko"><strong>Structured LLM input</strong> — JSON 직렬화 + 검증 + 결정적 fallback</span><span class="i18n-en"><strong>Structured LLM input</strong> — JSON serialization + validation + deterministic fallback</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Stack ──────────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="sec-label">Tech Stack</div>
+    <div class="stack">
+      <span class="chip"><b>Go 1.24</b> · Gin · client-go</span>
+      <span class="chip"><b>Gemini</b> · google.golang.org/genai</span>
+      <span class="chip"><b>TypeScript 5</b> · React 18 · Vite</span>
+      <span class="chip"><b>React Flow</b> v12</span>
+      <span class="chip"><b>Tailwind CSS</b> v4</span>
+      <span class="chip"><b>React Query</b> + Zustand</span>
+      <span class="chip"><b>Cloud Run</b> · Artifact Registry</span>
+      <span class="chip"><b>Secret Manager</b> · Cloud Build</span>
+      <span class="chip"><b>GKE</b> · least-privilege RBAC</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── Final CTA ──────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="final-cta">
+      <h2 class="i18n-ko">소스 코드를 확인하세요</h2>
+      <h2 class="i18n-en">Check out the source code</h2>
+      <p class="i18n-ko">Apache 2.0 · GitHub 공개 저장소 · <code class="mono">./run.sh</code>로 30초 만에 로컬 실행</p>
+      <p class="i18n-en">Apache 2.0 · Public GitHub repository · Run locally in 30 seconds with <code class="mono">./run.sh</code></p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="https://github.com/AIBuilderCup-ClusterMind/ClusterMind" target="_blank" rel="noopener"><span class="i18n-ko">GitHub에서 보기 ↗</span><span class="i18n-en">View on GitHub ↗</span></a>
+        <a class="btn btn-ghost" href="https://github.com/AIBuilderCup-ClusterMind/ClusterMind/blob/main/README.md" target="_blank" rel="noopener">README ↗</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap" style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; width: 100%;">
+    <span><span class="icoico"><svg class="lucide lucide-dna" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m10 16 1.5 1.5" /> <path d="m14 8-1.5-1.5" /> <path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993" /> <path d="m16.5 10.5 1 1" /> <path d="m17 6-2.891-2.891" /> <path d="M2 15c6.667-6 13.333 0 20-6" /> <path d="m20 9 .891.891" /> <path d="M3.109 14.109 4 15" /> <path d="m6.5 12.5 1 1" /> <path d="m7 18 2.891 2.891" /> <path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993" /> </svg></span> ClusterMind — AI Infrastructure Digital Twin</span>
+    <span>Apache 2.0 · Built with Go, Gemini &amp; React Flow · Deployed on Google Cloud Run</span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var html = document.documentElement;
+    var titles = {
+      ko: "ClusterMind — AI 인프라 디지털 트윈",
+      en: "ClusterMind — AI Infrastructure Digital Twin"
+    };
+    var descs = {
+      ko: "Kubernetes 클러스터를 실시간 분석해 구조도·의존성 그래프·장애 영향 범위를 자동 생성하는 AI 인프라 디지털 트윈. Go + Gemini + React Flow, Google Cloud Run 배포.",
+      en: "An AI infrastructure digital twin that analyzes Kubernetes clusters in real time to auto-generate topology maps, dependency graphs, and failure blast radii. Go + Gemini + React Flow, deployed on Google Cloud Run."
+    };
+    function setLang(lang) {
+      if (lang !== "ko" && lang !== "en") lang = "ko";
+      html.lang = lang;
+      html.setAttribute("data-lang", lang);
+      document.title = titles[lang];
+      var meta = document.querySelector('meta[name="description"]');
+      if (meta) meta.setAttribute("content", descs[lang]);
+      var btns = document.querySelectorAll("[data-lang-btn]");
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle("active", btns[i].getAttribute("data-lang-btn") === lang);
+      }
+      try { localStorage.setItem("cm-lang", lang); } catch (e) {}
+    }
+    var btns = document.querySelectorAll("[data-lang-btn]");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () {
+        setLang(this.getAttribute("data-lang-btn"));
+      });
+    }
+    var saved = null;
+    try { saved = localStorage.getItem("cm-lang"); } catch (e) {}
+    if (saved !== "ko" && saved !== "en") saved = "en";
+    setLang(saved);
+  })();
+</script>
+
+</body>
+</html>
