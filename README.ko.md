@@ -4,6 +4,15 @@
 
 **[English README →](./README.md)**
 
+## 라이브 데모
+
+| | 접속 주소 |
+|---|---|
+| **소개 페이지** | https://clustermind-intro-607541401069.asia-northeast3.run.app |
+| **데모 앱** | https://clustermind-607541401069.asia-northeast3.run.app |
+
+데모 앱은 Cloud Run에서 **데모 모드**(`CLUSTERMIND_DEMO=failure`)로 동작합니다: `payment-deployment` 장애(ImagePullBackOff)가 발생한 가상 클러스터에서 sev1 인시던트 타임라인 파생과 Gemini 조사 리포트를 확인할 수 있습니다 — Kubernetes 클러스터가 없어도 동작합니다.
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                        ClusterMind                          │

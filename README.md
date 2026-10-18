@@ -14,6 +14,17 @@ It collects cluster resources (read-only), builds a dependency graph via label-s
 
 ---
 
+## Live Demo
+
+| | URL |
+|---|---|
+| **Intro page** | https://clustermind-intro-607541401069.asia-northeast3.run.app |
+| **Demo app** | https://clustermind-607541401069.asia-northeast3.run.app |
+
+The demo app runs on Cloud Run in **demo mode** (`CLUSTERMIND_DEMO=failure`): a virtual cluster with a broken `payment-deployment` (ImagePullBackOff), a derived sev1 incident timeline, and Gemini-powered investigation — no Kubernetes cluster required.
+
+---
+
 ## Key Features
 
 - **Read-Only Collection**: ClusterMind never writes to the cluster; all operations are strictly read-only.

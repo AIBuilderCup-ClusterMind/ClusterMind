@@ -45,6 +45,14 @@
   .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
 
   /* ── Nav ── */
+  .cup-banner {
+    background: linear-gradient(90deg, oklch(0.55 0.15 265), oklch(0.55 0.13 200));
+    color: #fff; text-align: center;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
+    padding: 9px 16px;
+  }
+  .cup-banner a { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+  .cup-banner a:hover { opacity: 0.85; text-decoration: none; }
   nav {
     position: sticky; top: 0; z-index: 50;
     background: oklch(0.16 0.01 260 / 0.85);
@@ -372,6 +380,11 @@
 </head>
 <body>
 
+<div class="cup-banner">
+  <span class="i18n-ko">본 프로젝트는 <a href="https://aibuildercup.com/" target="_blank" rel="noopener">Google Cloud AI Builder Cup 2026</a> 해커톤 출품작입니다</span>
+  <span class="i18n-en">This project is a submission to the <a href="https://aibuildercup.com/" target="_blank" rel="noopener">Google Cloud AI Builder Cup 2026</a> hackathon</span>
+</div>
+
 <nav>
   <div class="nav-inner">
     <a class="logo" href="#">
@@ -422,6 +435,7 @@
     <div class="hero-cta">
       <a class="btn btn-primary" href="#impact"><span class="i18n-ko">장애 시뮬레이션 보기 ↓</span><span class="i18n-en">See the failure simulation ↓</span></a>
       <a class="btn btn-ghost" href="https://github.com/AIBuilderCup-ClusterMind/ClusterMind" target="_blank" rel="noopener"><span class="i18n-ko">소스 코드 ↗</span><span class="i18n-en">Source Code ↗</span></a>
+      <a class="btn btn-primary" href="https://clustermind-607541401069.asia-northeast3.run.app" target="_blank" rel="noopener"><span class="i18n-ko">라이브 데모 보기 ↗</span><span class="i18n-en">View Live Demo ↗</span></a>
     </div>
   </div>
 </header>
@@ -754,6 +768,7 @@
   <div class="wrap" style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; width: 100%;">
     <span><span class="icoico"><svg class="lucide lucide-dna" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m10 16 1.5 1.5" /> <path d="m14 8-1.5-1.5" /> <path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993" /> <path d="m16.5 10.5 1 1" /> <path d="m17 6-2.891-2.891" /> <path d="M2 15c6.667-6 13.333 0 20-6" /> <path d="m20 9 .891.891" /> <path d="M3.109 14.109 4 15" /> <path d="m6.5 12.5 1 1" /> <path d="m7 18 2.891 2.891" /> <path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993" /> </svg></span> ClusterMind — AI Infrastructure Digital Twin</span>
     <span>Apache 2.0 · Built with Go, Gemini &amp; React Flow · Deployed on Google Cloud Run</span>
+    <span><span class="i18n-ko">Google Cloud AI Builder Cup 2026 출품작 · </span><span class="i18n-en">A Google Cloud AI Builder Cup 2026 submission · </span><a href="https://aibuildercup.com/" target="_blank" rel="noopener" style="color: inherit;">aibuildercup.com ↗</a></span>
   </div>
 </footer>
 
