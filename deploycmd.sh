@@ -58,9 +58,10 @@ if [[ "${SKIP_SECRET}" != "1" ]]; then
         | gcloud secrets versions add "${SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
     fi
     # Cloud Run revision가 시크릿을 읽도록 실행 계정에 접근 권한 부여
+    PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
     gcloud secrets add-iam-policy-binding "${SECRET_NAME}" \
       --project="${PROJECT_ID}" \
-      --member="serviceAccount:${PROJECT_ID}-compute@developer.gserviceaccount.com" \
+      --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
       --role="roles/secretmanager.secretAccessor" >/dev/null
     SET_SECRETS="--set-secrets=GEMINI_API_KEY=${SECRET_NAME}:latest"
   else

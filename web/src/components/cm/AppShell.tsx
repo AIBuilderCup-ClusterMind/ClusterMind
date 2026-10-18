@@ -1,10 +1,12 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Activity, Beaker, LayoutGrid, Network, RefreshCw, Siren } from 'lucide-react'
+import { Activity, Beaker, ExternalLink, LayoutGrid, Network, RefreshCw, Siren } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { cn } from '../../lib/utils'
 import { useTwin } from '../../hooks/useTwin'
+
+const INTRO_URL = 'https://clustermind-intro-607541401069.asia-northeast3.run.app'
 
 const nav = [
   { to: '/', label: 'Overview', icon: LayoutGrid },
@@ -77,6 +79,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Ctx label="cluster" value={twin?.cluster ?? '…'} />
           <Ctx label="namespace" value={twin?.namespace ?? '…'} />
           <div className="ml-auto flex items-center gap-3">
+            <a
+              href={(import.meta.env.VITE_INTRO_URL as string | undefined) || INTRO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Intro page"
+              aria-label="Open intro page"
+              className="grid size-8 place-items-center rounded-md border border-border-strong text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ExternalLink className="size-3.5" />
+            </a>
             <button
               onClick={refresh}
               title="Refresh snapshot"
