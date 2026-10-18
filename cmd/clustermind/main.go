@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 
+	demodata "github.com/clustermind/clustermind/demo"
 	aiPkg "github.com/clustermind/clustermind/internal/ai"
 	"github.com/clustermind/clustermind/internal/api"
 	"github.com/clustermind/clustermind/internal/graph"
@@ -47,9 +48,9 @@ func printUsage() {
 	fmt.Println(`ClusterMind — AI Infrastructure Digital Twin
 
 Usage:
-  clustermind serve   [--port 8080] [--namespace demo]
-  clustermind analyze [--namespace demo]
-  clustermind impact  --target Service/demo/payment-svc
+  clustermind serve   [--port 8080] [--namespace demo] [--demo [healthy|failure]]
+  clustermind analyze [--namespace demo] [--demo]
+  clustermind impact  --target Service/demo/payment-svc [--demo]
 
 Environment variables:
   GEMINI_API_KEY          Gemini API key (required for AI features)
@@ -57,6 +58,8 @@ Environment variables:
   KUBECONFIG              kubeconfig path (default: ~/.kube/config)
   CLUSTERMIND_PORT        API server port (default: 8080)
   CLUSTERMIND_NAMESPACE   namespace to collect (default: all)
+  CLUSTERMIND_DEMO        run without any cluster: 1|healthy = all workloads
+                          ready, failure = broken payment-deployment + incidents
   CLUSTERMIND_LOG_LEVEL   log level: DEBUG|INFO|WARN|ERROR (default: INFO)`)
 }
 
@@ -73,14 +76,13 @@ func runServe() {
 	}
 	ns := flagValue("--namespace", "CLUSTERMIND_NAMESPACE", "")
 
-	clientset := mustKubeClient()
-	collector := probe.NewClusterCollector(clientset, ns)
+	collector, cluster := mustCollector(ns)
 	builder := graph.NewGraphBuilder()
 	renderer := render.NewRenderer()
 	engine := aiPkg.NewEngine(os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL"))
 	analyzer := aiPkg.NewAnalyzer(engine)
 
-	srv := api.NewServer(collector, builder, renderer, analyzer, engine, kubeContextName())
+	srv := api.NewServer(collector, builder, renderer, analyzer, engine, cluster)
 	if err := srv.Run(":" + port); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
@@ -91,8 +93,7 @@ func runServe() {
 
 func runAnalyze() {
 	ns := flagValue("--namespace", "CLUSTERMIND_NAMESPACE", "")
-	clientset := mustKubeClient()
-	collector := probe.NewClusterCollector(clientset, ns)
+	collector, _ := mustCollector(ns)
 
 	ctx := context.Background()
 	snap, err := collector.Collect(ctx)
@@ -133,8 +134,7 @@ func runImpact() {
 		os.Exit(1)
 	}
 	ns := flagValue("--namespace", "CLUSTERMIND_NAMESPACE", "")
-	clientset := mustKubeClient()
-	collector := probe.NewClusterCollector(clientset, ns)
+	collector, _ := mustCollector(ns)
 
 	ctx := context.Background()
 	snap, err := collector.Collect(ctx)
@@ -193,6 +193,28 @@ func runImpact() {
 }
 
 // --- helpers ---
+
+// mustCollector returns the snapshot source for the current mode:
+// CLUSTERMIND_DEMO / --demo set → virtual demo collector (no cluster needed);
+// otherwise the live cluster collector (requires a reachable kubeconfig).
+// The returned cluster name labels API responses (e.g. "demo").
+func mustCollector(ns string) (probe.Collector, string) {
+	scenario, demo, err := probe.DemoMode(flagValue("--demo", "CLUSTERMIND_DEMO", ""))
+	if err != nil {
+		slog.Error("invalid demo mode", "error", err)
+		os.Exit(1)
+	}
+	if demo {
+		dc, err := probe.NewDemoCollector(demodata.MockClusterYAML, ns, scenario)
+		if err != nil {
+			slog.Error("demo collector init failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("demo mode enabled — no cluster connection", "scenario", scenario, "namespace", ns)
+		return dc, "demo"
+	}
+	return probe.NewClusterCollector(mustKubeClient(), ns), kubeContextName()
+}
 
 func mustKubeClient() kubernetes.Interface {
 	kubeconfig := os.Getenv("KUBECONFIG")

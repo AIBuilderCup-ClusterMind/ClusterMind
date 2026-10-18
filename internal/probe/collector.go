@@ -11,6 +11,16 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// Collector abstracts snapshot acquisition so the API server and CLI can run
+// against a live cluster (ClusterCollector) or the built-in demo dataset
+// (DemoCollector) without downstream code changes.
+type Collector interface {
+	// Collect returns a fresh snapshot of all supported resource types.
+	Collect(ctx context.Context) (*ClusterSnapshot, error)
+	// Namespace returns the namespace filter (empty string = all namespaces).
+	Namespace() string
+}
+
 // ClusterCollector gathers K8s resources from a cluster (read-only).
 type ClusterCollector struct {
 	clientset kubernetes.Interface

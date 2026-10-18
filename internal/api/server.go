@@ -18,7 +18,7 @@ import (
 // Server is the ClusterMind REST API server.
 type Server struct {
 	router      *gin.Engine
-	collector   *probe.ClusterCollector
+	collector   probe.Collector
 	builder     *graph.GraphBuilder
 	renderer    *render.Renderer
 	analyzer    *aiPkg.Analyzer
@@ -28,7 +28,7 @@ type Server struct {
 
 // NewServer wires up all dependencies and registers routes.
 func NewServer(
-	collector *probe.ClusterCollector,
+	collector probe.Collector,
 	builder *graph.GraphBuilder,
 	renderer *render.Renderer,
 	analyzer *aiPkg.Analyzer,

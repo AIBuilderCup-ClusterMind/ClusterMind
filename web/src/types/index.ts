@@ -87,6 +87,8 @@ export interface SupportingEvidenceRef {
 export interface InvestigationResult {
   incidentId: string
   generatedBy: 'gemini' | 'fallback'
+  /** Gemini model ID when generatedBy is 'gemini' (e.g. "gemini-3.8-flash"). */
+  model?: string
   summary: string
   observedFacts: string[]
   possibleCauses: PossibleCause[]

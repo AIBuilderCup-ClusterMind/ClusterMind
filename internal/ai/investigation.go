@@ -43,7 +43,8 @@ type SupportingEvidenceRef struct {
 // InvestigationResult is a structured incident investigation report.
 type InvestigationResult struct {
 	IncidentID         string                  `json:"incidentId"`
-	GeneratedBy        string                  `json:"generatedBy"` // "gemini" | "fallback"
+	GeneratedBy        string                  `json:"generatedBy"`     // "gemini" | "fallback"
+	Model              string                  `json:"model,omitempty"` // Gemini model ID when GeneratedBy == "gemini"
 	Summary            string                  `json:"summary"`
 	ObservedFacts      []string                `json:"observedFacts"`
 	PossibleCauses     []PossibleCause         `json:"possibleCauses"`
@@ -108,6 +109,7 @@ func (a *Analyzer) Investigate(
 	return &InvestigationResult{
 		IncidentID:         req.IncidentID,
 		GeneratedBy:        "gemini",
+		Model:              a.engine.Model(),
 		Summary:            parsed.Summary,
 		ObservedFacts:      nonEmpty(parsed.ObservedFacts),
 		PossibleCauses:     causes,
@@ -137,7 +139,6 @@ func ExtractJSONPayload(raw string) string {
 	}
 	return raw
 }
-
 
 // clampCauses keeps only well-formed causes with a valid confidence level.
 func clampCauses(causes []PossibleCause) []PossibleCause {
