@@ -43,7 +43,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &getResp)
 	require.NoError(t, err)
 	assert.Equal(t, aiPkg.ProviderGemini, getResp.Provider)
-	assert.Equal(t, "gemini-2.0-flash", getResp.Model)
+	assert.Equal(t, aiPkg.DefaultModel, getResp.Model)
 	assert.False(t, getResp.HasAPIKey)
 	assert.Len(t, getResp.SupportedProviders, 2)
 

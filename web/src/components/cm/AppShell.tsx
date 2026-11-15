@@ -97,12 +97,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* AI Engine Status Badge / Quick Settings Trigger */}
             <button
               onClick={() => setIsSettingsOpen(true)}
-              title={`AI Engine: ${settings?.provider === 'openai' ? 'OpenAI' : 'Google Gemini'} (${settings?.model ?? 'gemini-2.0-flash'}) · Click to configure`}
+              title={`AI Engine: ${settings?.provider === 'openai' ? 'OpenAI' : 'Google Gemini'} (${settings?.model ?? 'gemini-3.8-flash'}) · Click to configure`}
               className="flex h-8 items-center gap-1.5 rounded-md border border-border-strong bg-surface-2 px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <Bot className="size-3.5 text-primary" />
               <span className="hidden font-mono sm:inline">
-                {settings?.provider === 'openai' ? 'OpenAI' : 'Gemini'} · {settings?.model ?? '2.0-flash'}
+                {settings?.provider === 'openai' ? 'OpenAI' : 'Gemini'} · {settings?.model ?? '3.8-flash'}
               </span>
               <span
                 className={cn(

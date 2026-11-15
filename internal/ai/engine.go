@@ -25,7 +25,7 @@ const (
 	ProviderOpenAI = "openai"
 
 	// DefaultModel is the recommended Gemini model for low-latency reasoning.
-	DefaultModel = "gemini-2.0-flash"
+	DefaultModel = "gemini-3.8-flash"
 )
 
 // ModelItem represents a selectable AI model with display metadata.
@@ -51,13 +51,12 @@ func SupportedProviders() []ProviderMeta {
 		{
 			ID:           ProviderGemini,
 			Name:         "Google Gemini",
-			DefaultModel: "gemini-2.0-flash",
+			DefaultModel: "gemini-3.8-flash",
 			Models: []string{
-				"gemini-2.0-flash",
-				"gemini-2.0-flash-lite",
-				"gemini-1.5-flash",
-				"gemini-1.5-flash-8b",
-				"gemini-1.5-pro",
+				"gemini-3.8-flash",
+				"gemini-3.5-flash-lite",
+				"gemini-3.5-pro",
+				"gemini-2.5-flash",
 			},
 			KeyHelpURL: "https://aistudio.google.com/apikey",
 			KeyPrefix:  "AIza",
@@ -90,7 +89,7 @@ type Engine struct {
 
 // NewEngine creates an Engine with the given Gemini API key and model name.
 // If model is empty, it reads GEMINI_MODEL from the environment, defaulting
-// to DefaultModel ("gemini-2.0-flash").
+// to DefaultModel ("gemini-3.8-flash").
 // If apiKey is empty, it reads GEMINI_API_KEY from the environment.
 func NewEngine(apiKey, model string) *Engine {
 	if model == "" {
@@ -151,7 +150,7 @@ func (e *Engine) Configure(provider, apiKey, model string) error {
 		if e.provider == ProviderOpenAI {
 			e.model = "gpt-4o"
 		} else {
-			e.model = "gemini-2.0-flash"
+			e.model = "gemini-3.8-flash"
 		}
 	}
 
@@ -344,7 +343,7 @@ func (e *Engine) Test(ctx context.Context, provider, apiKey, model string) error
 		} else if provider == ProviderOpenAI {
 			model = "gpt-4o"
 		} else {
-			model = "gemini-2.0-flash"
+			model = "gemini-3.8-flash"
 		}
 	}
 	if strings.TrimSpace(apiKey) == "" {
@@ -610,25 +609,44 @@ func fetchGeminiModels(ctx context.Context, client *http.Client, apiKey string) 
 func sortGeminiModels(items []ModelItem) {
 	priority := func(id string) int {
 		switch id {
-		case "gemini-2.0-flash":
+		case "gemini-3.8-flash":
 			return 100
-		case "gemini-2.0-flash-lite":
+		case "gemini-3.5-flash-lite":
 			return 95
-		case "gemini-1.5-flash":
+		case "gemini-3.5-pro":
+			return 90
+		case "gemini-3.0-flash":
 			return 85
-		case "gemini-1.5-flash-8b":
+		case "gemini-2.5-flash":
 			return 80
+		case "gemini-2.0-flash":
+			return 40
+		case "gemini-2.0-flash-lite":
+			return 35
+		case "gemini-1.5-flash":
+			return 25
+		case "gemini-1.5-flash-8b":
+			return 20
 		case "gemini-1.5-pro":
-			return 75
+			return 15
 		}
-		if strings.HasPrefix(id, "gemini-2.0") {
-			return 60
+		if strings.HasPrefix(id, "gemini-3.8") {
+			return 92
+		}
+		if strings.HasPrefix(id, "gemini-3.5") {
+			return 88
+		}
+		if strings.HasPrefix(id, "gemini-3") {
+			return 82
+		}
+		if strings.HasPrefix(id, "gemini-2.5") {
+			return 70
+		}
+		if strings.HasPrefix(id, "gemini-2") {
+			return 30
 		}
 		if strings.HasPrefix(id, "gemini-1.5") {
-			return 50
-		}
-		if strings.HasPrefix(id, "gemini-1.0") {
-			return 30
+			return 20
 		}
 		return 10
 	}

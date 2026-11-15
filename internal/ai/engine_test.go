@@ -9,7 +9,7 @@ import (
 )
 
 func TestEngine_ModelConfiguration(t *testing.T) {
-	// 1. Default model should be DefaultModel (gemini-2.0-flash)
+	// 1. Default model should be DefaultModel (gemini-3.8-flash)
 	origEnv := os.Getenv("GEMINI_MODEL")
 	defer os.Setenv("GEMINI_MODEL", origEnv)
 
@@ -87,10 +87,8 @@ func TestSupportedProviders(t *testing.T) {
 	assert.Equal(t, ProviderGemini, providers[0].ID)
 	assert.Equal(t, ProviderOpenAI, providers[1].ID)
 
-	// Ensure no invalid models like gemini-2.5-flash
-	assert.NotContains(t, providers[0].Models, "gemini-2.5-flash")
-	assert.Contains(t, providers[0].Models, "gemini-2.0-flash")
-	assert.Contains(t, providers[0].Models, "gemini-2.0-flash-lite")
+	assert.Contains(t, providers[0].Models, "gemini-3.8-flash")
+	assert.Contains(t, providers[0].Models, "gemini-3.5-flash-lite")
 }
 
 func TestFetchAvailableModelsWithoutKey(t *testing.T) {
@@ -105,13 +103,13 @@ func TestFetchAvailableModelsWithoutKey(t *testing.T) {
 func TestSortGeminiModels(t *testing.T) {
 	items := []ModelItem{
 		{ID: "gemini-1.5-pro", DisplayName: "Gemini 1.5 Pro"},
-		{ID: "gemini-2.0-flash", DisplayName: "Gemini 2.0 Flash"},
-		{ID: "gemini-2.0-flash-lite", DisplayName: "Gemini 2.0 Flash Lite"},
-		{ID: "gemini-1.5-flash", DisplayName: "Gemini 1.5 Flash"},
+		{ID: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash"},
+		{ID: "gemini-3.5-flash-lite", DisplayName: "Gemini 3.5 Flash Lite"},
+		{ID: "gemini-2.5-flash", DisplayName: "Gemini 2.5 Flash"},
 	}
 	sortGeminiModels(items)
-	assert.Equal(t, "gemini-2.0-flash", items[0].ID)
-	assert.Equal(t, "gemini-2.0-flash-lite", items[1].ID)
-	assert.Equal(t, "gemini-1.5-flash", items[2].ID)
+	assert.Equal(t, "gemini-3.8-flash", items[0].ID)
+	assert.Equal(t, "gemini-3.5-flash-lite", items[1].ID)
+	assert.Equal(t, "gemini-2.5-flash", items[2].ID)
 	assert.Equal(t, "gemini-1.5-pro", items[3].ID)
 }

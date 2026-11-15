@@ -28,7 +28,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { settings, updateSettings, isUpdating } = useSettings()
 
   const [provider, setProvider] = useState<string>('gemini')
-  const [model, setModel] = useState<string>('gemini-2.0-flash')
+  const [model, setModel] = useState<string>('gemini-3.8-flash')
   const [isCustomModel, setIsCustomModel] = useState(false)
   const [customModelName, setCustomModelName] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -53,13 +53,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     {
       id: 'gemini',
       name: 'Google Gemini',
-      defaultModel: 'gemini-2.0-flash',
+      defaultModel: 'gemini-3.8-flash',
       models: [
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-lite',
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-8b',
-        'gemini-1.5-pro',
+        'gemini-3.8-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-pro',
+        'gemini-2.5-flash',
       ],
       keyHelpUrl: 'https://aistudio.google.com/apikey',
       keyPrefix: 'AIza',
@@ -84,7 +83,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setProvider(initialProvider)
 
     const activeMeta = settings.supportedProviders.find((p) => p.id === initialProvider)
-    const currentModel = settings.model || activeMeta?.defaultModel || 'gemini-2.0-flash'
+    const currentModel = settings.model || activeMeta?.defaultModel || 'gemini-3.8-flash'
 
     if (activeMeta && !activeMeta.models.includes(currentModel)) {
       setIsCustomModel(true)
@@ -366,7 +365,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <div className="mt-2">
                 <input
                   type="text"
-                  placeholder="e.g. gemini-2.0-flash or gpt-4o"
+                  placeholder="e.g. gemini-3.8-flash or gpt-4o"
                   value={customModelName}
                   onChange={(e) => setCustomModelName(e.target.value)}
                   className="h-8 w-full rounded-md border border-border-strong bg-surface-2 px-2.5 font-mono text-xs text-foreground focus:border-primary focus:outline-hidden"

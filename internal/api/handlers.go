@@ -383,7 +383,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 	}
 
 	provider := aiPkg.ProviderGemini
-	model := "gemini-2.0-flash"
+	model := aiPkg.DefaultModel
 	hasKey := false
 	maskedKey := ""
 
