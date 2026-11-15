@@ -4,6 +4,7 @@ package api
 import (
 	"time"
 
+	aiPkg "github.com/clustermind/clustermind/internal/ai"
 	"github.com/clustermind/clustermind/internal/probe"
 	"github.com/clustermind/clustermind/internal/render"
 )
@@ -129,3 +130,59 @@ type TwinIncident struct {
 type InvestigateRequest struct {
 	IncidentID string `json:"incidentId" binding:"required"`
 }
+
+// ── AI Settings ─────────────────────────────────────────────────────────────
+
+// ProviderInfo describes one supported AI provider and model choices.
+type ProviderInfo struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	DefaultModel string   `json:"defaultModel"`
+	Models       []string `json:"models"`
+	KeyHelpURL   string   `json:"keyHelpUrl"`
+	KeyPrefix    string   `json:"keyPrefix"`
+}
+
+// SettingsResponse is returned by GET /api/v1/settings.
+type SettingsResponse struct {
+	Provider           string         `json:"provider"`
+	Model              string         `json:"model"`
+	HasAPIKey          bool           `json:"hasApiKey"`
+	MaskedAPIKey       string         `json:"maskedApiKey"`
+	SupportedProviders []ProviderInfo `json:"supportedProviders"`
+}
+
+// UpdateSettingsRequest is the POST /api/v1/settings request body.
+type UpdateSettingsRequest struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	APIKey   string `json:"apiKey"`
+}
+
+// TestSettingsRequest is the POST /api/v1/settings/test request body.
+type TestSettingsRequest struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	APIKey   string `json:"apiKey"`
+}
+
+// TestSettingsResponse is the response for POST /api/v1/settings/test.
+type TestSettingsResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ListModelsRequest is the POST /api/v1/settings/models request body.
+type ListModelsRequest struct {
+	Provider string `json:"provider"`
+	APIKey   string `json:"apiKey"`
+}
+
+// ListModelsResponse is the response for POST /api/v1/settings/models.
+type ListModelsResponse struct {
+	Provider string             `json:"provider"`
+	Models   []aiPkg.ModelItem `json:"models"`
+}
+
+

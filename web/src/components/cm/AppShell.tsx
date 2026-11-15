@@ -1,10 +1,12 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Activity, Beaker, ExternalLink, LayoutGrid, Network, RefreshCw, Siren } from 'lucide-react'
+import { Activity, Beaker, Bot, ExternalLink, LayoutGrid, Network, RefreshCw, Settings, Siren } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { cn } from '../../lib/utils'
 import { useTwin } from '../../hooks/useTwin'
+import { useSettings } from '../../hooks/useSettings'
+import { SettingsModal } from '../SettingsModal'
 
 const INTRO_URL = 'https://clustermind-intro-607541401069.asia-northeast3.run.app'
 
@@ -17,9 +19,11 @@ const nav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: twin, isLoading } = useTwin()
+  const { settings } = useSettings()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [refreshing, setRefreshing] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   const openIncidents = twin?.incidents.filter((i) => i.status === 'open').length ?? 0
 
@@ -78,7 +82,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="flex h-12 shrink-0 items-center gap-4 border-b px-4">
           <Ctx label="cluster" value={twin?.cluster ?? '…'} />
           <Ctx label="namespace" value={twin?.namespace ?? '…'} />
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2.5">
             <a
               href={(import.meta.env.VITE_INTRO_URL as string | undefined) || INTRO_URL}
               target="_blank"
@@ -89,6 +93,35 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <ExternalLink className="size-3.5" />
             </a>
+
+            {/* AI Engine Status Badge / Quick Settings Trigger */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              title={`AI Engine: ${settings?.provider === 'openai' ? 'OpenAI' : 'Google Gemini'} (${settings?.model ?? 'gemini-3.8-flash'}) · Click to configure`}
+              className="flex h-8 items-center gap-1.5 rounded-md border border-border-strong bg-surface-2 px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Bot className="size-3.5 text-primary" />
+              <span className="hidden font-mono sm:inline">
+                {settings?.provider === 'openai' ? 'OpenAI' : 'Gemini'} · {settings?.model ?? '3.8-flash'}
+              </span>
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  settings?.hasApiKey ? 'bg-healthy' : 'bg-muted-foreground/40',
+                )}
+                title={settings?.hasApiKey ? 'API Key Configured' : 'No API Key (Fallback Mode)'}
+              />
+            </button>
+
+            {/* AI Settings Button */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              title="AI & Model Settings"
+              aria-label="AI & Model Settings"
+              className="grid size-8 place-items-center rounded-md border border-border-strong text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Settings className="size-3.5" />
+            </button>
             <button
               onClick={refresh}
               title="Refresh snapshot"
@@ -102,6 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       </div>
     </div>
   )

@@ -129,7 +129,7 @@ func TestExtractJSONPayload_Variations(t *testing.T) {
 
 func TestInvestigate_UnconfiguredEngineFallback(t *testing.T) {
 	// Engine created with no client (e.g. empty API key)
-	eng := &Engine{client: nil, model: "gemini-3.5-flash-lite"}
+	eng := NewEngine("", "gemini-3.5-flash-lite")
 	a := NewAnalyzer(eng)
 
 	result := a.Investigate(context.Background(), InvestigationRequest{

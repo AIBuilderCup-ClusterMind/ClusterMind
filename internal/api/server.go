@@ -74,6 +74,10 @@ func (s *Server) registerRoutes() {
 		v1.POST("/impact", s.handleImpact)
 		v1.POST("/investigate", s.handleInvestigate)
 		v1.GET("/watch", s.handleWatch)
+		v1.GET("/settings", s.handleGetSettings)
+		v1.POST("/settings", s.handleUpdateSettings)
+		v1.POST("/settings/test", s.handleTestSettings)
+		v1.POST("/settings/models", s.handleListModels)
 	}
 
 	// Health check

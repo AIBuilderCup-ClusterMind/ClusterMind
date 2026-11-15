@@ -366,3 +366,122 @@ func (s *Server) handleInvestigate(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// handleGetSettings returns current AI settings and available providers/models.
+func (s *Server) handleGetSettings(c *gin.Context) {
+	supported := aiPkg.SupportedProviders()
+	infos := make([]ProviderInfo, 0, len(supported))
+	for _, p := range supported {
+		infos = append(infos, ProviderInfo{
+			ID:           p.ID,
+			Name:         p.Name,
+			DefaultModel: p.DefaultModel,
+			Models:       p.Models,
+			KeyHelpURL:   p.KeyHelpURL,
+			KeyPrefix:    p.KeyPrefix,
+		})
+	}
+
+	provider := aiPkg.ProviderGemini
+	model := aiPkg.DefaultModel
+	hasKey := false
+	maskedKey := ""
+
+	if s.engine != nil {
+		provider = s.engine.Provider()
+		model = s.engine.Model()
+		hasKey = s.engine.HasAPIKey()
+		maskedKey = s.engine.MaskedAPIKey()
+	}
+
+	c.JSON(http.StatusOK, SettingsResponse{
+		Provider:           provider,
+		Model:              model,
+		HasAPIKey:          hasKey,
+		MaskedAPIKey:       maskedKey,
+		SupportedProviders: infos,
+	})
+}
+
+// handleUpdateSettings updates active AI provider, model, and/or API key.
+func (s *Server) handleUpdateSettings(c *gin.Context) {
+	var req UpdateSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("invalid request: %s", err)})
+		return
+	}
+
+	if s.engine == nil {
+		s.engine = aiPkg.NewEngine("", "")
+	}
+
+	if err := s.engine.Configure(req.Provider, req.APIKey, req.Model); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	s.handleGetSettings(c)
+}
+
+// handleTestSettings verifies connection with the specified provider and API key.
+func (s *Server) handleTestSettings(c *gin.Context) {
+	var req TestSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("invalid request: %s", err)})
+		return
+	}
+
+	if s.engine == nil {
+		s.engine = aiPkg.NewEngine("", "")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := s.engine.Test(ctx, req.Provider, req.APIKey, req.Model); err != nil {
+		c.JSON(http.StatusOK, TestSettingsResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, TestSettingsResponse{
+		Success: true,
+		Message: "Connection test succeeded!",
+	})
+}
+
+// handleListModels queries the AI provider API for live available models.
+func (s *Server) handleListModels(c *gin.Context) {
+	var req ListModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("invalid request: %s", err)})
+		return
+	}
+
+	if s.engine == nil {
+		s.engine = aiPkg.NewEngine("", "")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+
+	models, err := s.engine.FetchAvailableModels(ctx, req.Provider, req.APIKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	provider := req.Provider
+	if provider == "" {
+		provider = s.engine.Provider()
+	}
+
+	c.JSON(http.StatusOK, ListModelsResponse{
+		Provider: provider,
+		Models:   models,
+	})
+}
+
+
