@@ -1,11 +1,17 @@
 import type {
+  AISettings,
   GraphResult,
   ImpactResponse,
   InvestigationResult,
+  ListModelsRequest,
+  ListModelsResponse,
   NamespaceListResponse,
   NamespaceResourcesResponse,
   SnapshotSummary,
+  TestSettingsRequest,
+  TestSettingsResponse,
   TwinSnapshot,
+  UpdateSettingsRequest,
 } from '../types'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
@@ -68,3 +74,34 @@ export function fetchNamespaceResources(
     `/api/v1/namespaces/${encodeURIComponent(namespace)}/resources${qs}`,
   )
 }
+
+/** Fetch current AI provider/model settings and metadata. */
+export function fetchSettings(): Promise<AISettings> {
+  return request<AISettings>('/api/v1/settings')
+}
+
+/** Update AI provider, model, and/or API key. */
+export function updateSettings(req: UpdateSettingsRequest): Promise<AISettings> {
+  return request<AISettings>('/api/v1/settings', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** Test AI provider connection and model availability. */
+export function testSettings(req: TestSettingsRequest): Promise<TestSettingsResponse> {
+  return request<TestSettingsResponse>('/api/v1/settings/test', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** Fetch live available models for the given provider and API key. */
+export function fetchAvailableModels(req: ListModelsRequest): Promise<ListModelsResponse> {
+  return request<ListModelsResponse>('/api/v1/settings/models', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+
