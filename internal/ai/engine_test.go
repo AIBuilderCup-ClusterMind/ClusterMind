@@ -9,6 +9,7 @@ import (
 )
 
 func TestEngine_ModelConfiguration(t *testing.T) {
+	t.Setenv("CLUSTERMIND_DISABLE_PERSISTENCE", "1")
 	// 1. Default model should be DefaultModel (gemini-3.8-flash)
 	origEnv := os.Getenv("GEMINI_MODEL")
 	defer os.Setenv("GEMINI_MODEL", origEnv)
@@ -39,6 +40,7 @@ func TestEngine_IsConfigured_NilSafety(t *testing.T) {
 }
 
 func TestEngineConfiguration(t *testing.T) {
+	t.Setenv("CLUSTERMIND_DISABLE_PERSISTENCE", "1")
 	e := NewEngine("", "")
 	assert.Equal(t, ProviderGemini, e.Provider())
 	assert.Equal(t, DefaultModel, e.Model())
@@ -112,4 +114,26 @@ func TestSortGeminiModels(t *testing.T) {
 	assert.Equal(t, "gemini-3.5-flash-lite", items[1].ID)
 	assert.Equal(t, "gemini-2.5-flash", items[2].ID)
 	assert.Equal(t, "gemini-1.5-pro", items[3].ID)
+}
+
+func TestEnginePersistence(t *testing.T) {
+	tempFile := t.TempDir() + "/settings.json"
+	t.Setenv("CLUSTERMIND_CONFIG_PATH", tempFile)
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GEMINI_MODEL", "")
+
+	// 1. Initial engine has default model
+	e1 := NewEngine("", "")
+	assert.Equal(t, DefaultModel, e1.Model())
+
+	// 2. Configure with custom model & key (persists to tempFile)
+	err := e1.Configure(ProviderOpenAI, "sk-test-saved-key-1234", "gpt-4o-mini")
+	assert.NoError(t, err)
+	assert.FileExists(t, tempFile)
+
+	// 3. New engine instance simulating server restart reads persisted settings
+	e2 := NewEngine("", "")
+	assert.Equal(t, ProviderOpenAI, e2.Provider())
+	assert.Equal(t, "gpt-4o-mini", e2.Model())
+	assert.Equal(t, "sk-test-saved-key-1234", e2.APIKey())
 }

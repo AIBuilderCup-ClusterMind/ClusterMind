@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -87,11 +88,72 @@ type Engine struct {
 	httpClient   *http.Client
 }
 
+// PersistedSettings stores AI provider, model, and key configuration on disk.
+type PersistedSettings struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	APIKey   string `json:"apiKey,omitempty"`
+}
+
+func defaultSettingsPath() string {
+	if p := os.Getenv("CLUSTERMIND_CONFIG_PATH"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		return filepath.Join(home, ".clustermind", "settings.json")
+	}
+	return ".clustermind-settings.json"
+}
+
+func (e *Engine) loadPersistedSettings() {
+	if os.Getenv("CLUSTERMIND_DISABLE_PERSISTENCE") == "1" {
+		return
+	}
+	path := defaultSettingsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var s PersistedSettings
+	if err := json.Unmarshal(data, &s); err != nil {
+		return
+	}
+	if s.Provider != "" || s.Model != "" || s.APIKey != "" {
+		_ = e.configureInternal(s.Provider, s.APIKey, s.Model, false)
+	}
+}
+
+func (e *Engine) persistSettings() {
+	if os.Getenv("CLUSTERMIND_DISABLE_PERSISTENCE") == "1" {
+		return
+	}
+	path := defaultSettingsPath()
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0700)
+	}
+	s := PersistedSettings{
+		Provider: e.provider,
+		Model:    e.model,
+		APIKey:   e.apiKey,
+	}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0600)
+}
+
 // NewEngine creates an Engine with the given Gemini API key and model name.
 // If model is empty, it reads GEMINI_MODEL from the environment, defaulting
 // to DefaultModel ("gemini-3.8-flash").
 // If apiKey is empty, it reads GEMINI_API_KEY from the environment.
+// It also checks for previously persisted user settings from ~/.clustermind/settings.json.
 func NewEngine(apiKey, model string) *Engine {
+	explicitModel := model
+	explicitKey := apiKey
+
 	if model == "" {
 		model = os.Getenv("GEMINI_MODEL")
 	}
@@ -118,14 +180,25 @@ func NewEngine(apiKey, model string) *Engine {
 			e.geminiClient = client
 		}
 	}
+
+	// If no explicit model/key parameter was passed (e.g. normal server boot),
+	// load persisted settings saved from previous web sessions.
+	if explicitModel == "" && explicitKey == "" {
+		e.loadPersistedSettings()
+	}
+
 	return e
 }
 
-// Configure updates the provider, apiKey, and model at runtime.
+// Configure updates the provider, apiKey, and model at runtime and persists to disk.
 // If provider is empty, the current provider is kept.
 // If apiKey is empty, the current apiKey is kept.
 // If model is empty, a sensible default for the provider is chosen.
 func (e *Engine) Configure(provider, apiKey, model string) error {
+	return e.configureInternal(provider, apiKey, model, true)
+}
+
+func (e *Engine) configureInternal(provider, apiKey, model string, persist bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -173,6 +246,10 @@ func (e *Engine) Configure(provider, apiKey, model string) error {
 		} else {
 			e.geminiClient = nil
 		}
+	}
+
+	if persist {
+		e.persistSettings()
 	}
 
 	return nil
